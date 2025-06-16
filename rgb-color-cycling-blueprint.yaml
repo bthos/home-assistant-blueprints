@@ -1,0 +1,202 @@
+blueprint:
+  name: RGB Color Cycling
+  description: >
+    Smooth RGB color cycling script that transitions through the color spectrum.
+    Creates beautiful smooth color transitions through Cyan->Blue->Magenta->Red->Yellow->Green->Cyan cycle.
+    
+    **Required Helper Entities:**
+    You need to create these input_number helpers in your Home Assistant:
+    - input_number.color_r (min: 0, max: 255, step: 1)
+    - input_number.color_g (min: 0, max: 255, step: 1) 
+    - input_number.color_b (min: 0, max: 255, step: 1)
+    - input_number.color_phase (min: 1, max: 6, step: 1)
+    - input_number.color_step (min: 1, max: 50, step: 1)
+    
+  domain: script
+  author: bthos
+  
+  input:
+    target_lights:
+      name: Target Light Entities
+      description: Select the RGB lights you want to control
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    
+    color_r_helper:
+      name: Red Color Helper
+      description: Input number helper for storing red color value (0-255)
+      selector:
+        entity:
+          domain: input_number
+      default: input_number.color_r
+    
+    color_g_helper:
+      name: Green Color Helper  
+      description: Input number helper for storing green color value (0-255)
+      selector:
+        entity:
+          domain: input_number
+      default: input_number.color_g
+    
+    color_b_helper:
+      name: Blue Color Helper
+      description: Input number helper for storing blue color value (0-255)
+      selector:
+        entity:
+          domain: input_number
+      default: input_number.color_b
+    
+    color_phase_helper:
+      name: Color Phase Helper
+      description: Input number helper for storing current color cycle phase (1-6)
+      selector:
+        entity:
+          domain: input_number
+      default: input_number.color_phase
+    
+    color_step_helper:
+      name: Color Step Size Helper
+      description: Input number helper for color transition step size (1-50)
+      selector:
+        entity:
+          domain: input_number
+      default: input_number.color_step
+    
+    transition_time:
+      name: Transition Time
+      description: Time in seconds for color transition
+      selector:
+        number:
+          min: 0.1
+          max: 5.0
+          step: 0.1
+          unit_of_measurement: seconds
+      default: 0.5
+    
+    step_size_override:
+      name: Step Size Override (Optional)
+      description: Override the step size helper with a fixed value (leave empty to use helper)
+      selector:
+        number:
+          min: 1
+          max: 50
+          step: 1
+      default: 
+
+# RGB Color Cycling Script for Home Assistant
+# Algorithm: Smooth color transitions through RGB spectrum  
+# Phases: Cyan->Blue->Magenta->Red->Yellow->Green->Cyan (repeat)
+
+alias: "RGB Color Cycle"
+sequence:
+  - variables:
+      # Get current RGB values from input helpers
+      current_r: "{{ states(color_r_helper) | int }}"
+      current_g: "{{ states(color_g_helper) | int }}"
+      current_b: "{{ states(color_b_helper) | int }}"
+      current_phase: "{{ states(color_phase_helper) | int }}"
+      # Allow step_size to be passed as parameter, fallback to input_helper
+      step_size: "{{ step_size_override if step_size_override else states(color_step_helper) | int }}"
+      
+  - variables:
+      # Calculate next RGB values based on current phase
+      next_values: >-
+        {%- set r = current_r -%}
+        {%- set g = current_g -%}
+        {%- set b = current_b -%}
+        {%- set phase = current_phase -%}
+        {%- set step = step_size -%}
+        
+        {%- if phase == 1 -%}
+          {# Phase 1: B decreases from 255 to 0 (R=0, G=255) #}
+          {%- set new_b = (b - step) if (b - step) >= 0 else 0 -%}
+          {%- set new_phase = 2 if new_b == 0 else phase -%}
+          {{ {'r': r, 'g': g, 'b': new_b, 'phase': new_phase} }}
+          
+        {%- elif phase == 2 -%}
+          {# Phase 2: R increases from 0 to 255 (G=255, B=0) #}
+          {%- set new_r = (r + step) if (r + step) <= 255 else 255 -%}
+          {%- set new_phase = 3 if new_r == 255 else phase -%}
+          {{ {'r': new_r, 'g': g, 'b': b, 'phase': new_phase} }}
+          
+        {%- elif phase == 3 -%}
+          {# Phase 3: G decreases from 255 to 0 (R=255, B=0) #}
+          {%- set new_g = (g - step) if (g - step) >= 0 else 0 -%}
+          {%- set new_phase = 4 if new_g == 0 else phase -%}
+          {{ {'r': r, 'g': new_g, 'b': b, 'phase': new_phase} }}
+          
+        {%- elif phase == 4 -%}
+          {# Phase 4: B increases from 0 to 255 (R=255, G=0) #}
+          {%- set new_b = (b + step) if (b + step) <= 255 else 255 -%}
+          {%- set new_phase = 5 if new_b == 255 else phase -%}
+          {{ {'r': r, 'g': g, 'b': new_b, 'phase': new_phase} }}
+          
+        {%- elif phase == 5 -%}
+          {# Phase 5: R decreases from 255 to 0 (G=0, B=255) #}
+          {%- set new_r = (r - step) if (r - step) >= 0 else 0 -%}
+          {%- set new_phase = 6 if new_r == 0 else phase -%}
+          {{ {'r': new_r, 'g': g, 'b': b, 'phase': new_phase} }}
+          
+        {%- elif phase == 6 -%}
+          {# Phase 6: G increases from 0 to 255 (R=0, B=255) #}
+          {%- set new_g = (g + step) if (g + step) <= 255 else 255 -%}
+          {%- set new_phase = 1 if new_g == 255 else phase -%}
+          {{ {'r': r, 'g': new_g, 'b': b, 'phase': new_phase} }}
+          
+        {%- else -%}
+          {# Reset to initial state if phase is invalid #}
+          {{ {'r': 0, 'g': 255, 'b': 255, 'phase': 1} }}
+        {%- endif -%}
+
+  - variables:
+      # Extract calculated values
+      new_r: "{{ next_values.r }}"
+      new_g: "{{ next_values.g }}"
+      new_b: "{{ next_values.b }}"
+      new_phase: "{{ next_values.phase }}"
+      
+  # Update RGB values in input helpers
+  - target:
+      entity_id: "{{ color_r_helper }}"
+    data:
+      value: "{{ new_r }}"
+    action: input_number.set_value
+  - target:
+      entity_id: "{{ color_g_helper }}"
+    data:
+      value: "{{ new_g }}"
+    action: input_number.set_value
+  - target:
+      entity_id: "{{ color_b_helper }}"
+    data:
+      value: "{{ new_b }}"
+    action: input_number.set_value
+  - target:
+      entity_id: "{{ color_phase_helper }}"
+    data:
+      value: "{{ new_phase }}"
+    action: input_number.set_value
+  
+  # Apply colors to lights (only if they are on)
+  - if:
+      - condition: template
+        value_template: >
+          {% for light in target_lights %}
+            {% if states(light) == 'on' %}
+              {{ true }}
+            {% endif %}
+          {% endfor %}
+    then:
+      - target:
+          entity_id: "{{ target_lights }}"
+        data:
+          rgb_color:
+            - "{{ new_r }}"
+            - "{{ new_g }}"
+            - "{{ new_b }}"
+          transition: "{{ transition_time }}"
+        action: light.turn_on
+
+mode: single
