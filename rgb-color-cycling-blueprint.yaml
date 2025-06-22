@@ -30,7 +30,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-      default: input_number.color_r
+      # default: input_number.color_r
     
     color_g_helper:
       name: Green Color Helper  
@@ -38,7 +38,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-      default: input_number.color_g
+      # default: input_number.color_g
     
     color_b_helper:
       name: Blue Color Helper
@@ -46,7 +46,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-      default: input_number.color_b
+      # default: input_number.color_b
     
     color_phase_helper:
       name: Color Phase Helper
@@ -54,7 +54,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-      default: input_number.color_phase
+      # default: input_number.color_phase
     
     color_step_helper:
       name: Color Step Size Helper
@@ -62,7 +62,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-      default: input_number.color_step
+      # default: input_number.color_step
     
     transition_time:
       name: Transition Time
@@ -83,7 +83,7 @@ blueprint:
           min: 1
           max: 50
           step: 1
-      default: 
+      # default: 
 
 # RGB Color Cycling Script for Home Assistant
 # Algorithm: Smooth color transitions through RGB spectrum  
