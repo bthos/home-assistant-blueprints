@@ -1,0 +1,289 @@
+---
+blueprint:
+  name: Dishwasher PVPC Smart Scheduling
+  description: >
+    Smart dishwasher scheduling based on PVPC electricity pricing.
+    Automatically checks PVPC electricity prices when dishwasher is turned on.
+    If price is within acceptable range, keeps dishwasher running.
+    If price is too high, turns off dishwasher and schedules it to start
+    during cheaper hours.
+
+    **Required Components:**
+    - PVPC Hourly Pricing integration
+    - Dishwasher device (switch, smart plug, or Home Connect appliance)
+    - sensor.pvpc entity providing current electricity price
+
+    **Optional:**
+    - Home Connect integration for native delayed start capability
+
+  domain: automation
+  author: bthos
+
+  input:
+    dishwasher_device:
+      name: Dishwasher Device
+      description: >
+        Select your dishwasher device (switch, smart plug, or appliance)
+      selector:
+        entity:
+          multiple: false
+
+    pvpc_sensor:
+      name: PVPC Price Sensor
+      description: PVPC sensor entity providing current electricity price
+      selector:
+        entity:
+          domain: sensor
+      default: sensor.pvpc
+
+    max_price_threshold:
+      name: Maximum Price Threshold
+      description: Maximum acceptable electricity price (€/kWh)
+      selector:
+        number:
+          min: 0.05
+          max: 0.50
+          step: 0.01
+          unit_of_measurement: "€/kWh"
+      default: 0.15
+
+    check_hours_ahead:
+      name: Hours to Check Ahead
+      description: How many hours ahead to check for cheaper prices
+      selector:
+        number:
+          min: 1
+          max: 24
+          step: 1
+          unit_of_measurement: hours
+      default: 6
+
+    min_delay_minutes:
+      name: Minimum Delay Before Rescheduling
+      description: Minimum minutes to wait before attempting to reschedule
+      selector:
+        number:
+          min: 5
+          max: 60
+          step: 5
+          unit_of_measurement: minutes
+      default: 30
+
+    notification_device:
+      name: Notification Device (Optional)
+      description: Device to receive notifications about scheduling decisions
+      selector:
+        entity:
+          domain:
+            - notify
+      default:
+      required: false
+
+    use_home_connect:
+      name: Use Home Connect Delayed Start
+      description: >
+        Enable if your dishwasher supports Home Connect and you want to use
+        native delayed start instead of turning device off/on
+      selector:
+        boolean:
+      default: false
+
+    home_connect_program:
+      name: Home Connect Program (Optional)
+      description: >
+        Home Connect program to start (e.g., 'Dishcare.Dishwasher.Program.Auto2')
+        Required if using Home Connect delayed start
+      selector:
+        text:
+      default: "Dishcare.Dishwasher.Program.Auto2"
+      required: false
+
+trigger:
+  - platform: state
+    entity_id: !input dishwasher_device
+    to: "on"
+
+variables:
+  dishwasher: !input dishwasher_device
+  pvpc_sensor: !input pvpc_sensor
+  max_price: !input max_price_threshold
+  check_hours: !input check_hours_ahead
+  min_delay: !input min_delay_minutes
+  notification_entity: !input notification_device
+  use_home_connect: !input use_home_connect
+  home_connect_program: !input home_connect_program
+
+action:
+  # Clean up any existing scheduled automations for this dishwasher
+  - repeat:
+      count: 10
+      sequence:
+        - action: automation.turn_off
+          target:
+            entity_id: >
+              automation.dishwasher_scheduled_start_{{
+                (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
+          continue_on_error: true
+        - action: automation.delete
+          target:
+            entity_id: >
+              automation.dishwasher_scheduled_start_{{
+                (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
+          continue_on_error: true
+
+  - variables:
+      current_price: "{{ states(pvpc_sensor) | float(0) }}"
+      current_time: "{{ now() }}"
+
+  # Check if current price is acceptable
+  - if:
+      - condition: template
+        value_template: "{{ current_price <= max_price }}"
+    then:
+      # Price is acceptable, keep dishwasher running
+      - if:
+          - condition: template
+            value_template: "{{ notification_entity != none }}"
+        then:
+          - action: "notify.{{ notification_entity.split('.')[1] }}"
+            data:
+              title: "Dishwasher Started"
+              message: >
+                Dishwasher started at acceptable price:
+                {{ current_price }}€/kWh (threshold: {{ max_price }}€/kWh)
+    else:
+      # Price is too high, need to reschedule
+      - variables:
+          # Get PVPC prices for next hours to find cheapest slot
+          future_prices: >
+            {%- set ns = namespace(prices=[]) -%}
+            {%- for i in range(1, check_hours + 1) -%}
+              {%- set future_time = (now() + timedelta(hours=i)) -%}
+              {%- set hour_str = future_time.strftime('%H') -%}
+              {%- set hour_attr = 'price_next_' +
+                  (i | string) + 'h' -%}
+              {%- set future_price =
+                  state_attr(pvpc_sensor, hour_attr) | float(1) -%}
+              {%- if future_price <= max_price and future_price > 0 -%}
+                {%- set ns.prices = ns.prices +
+                    [{'hour': i, 'price': future_price,
+                      'time': future_time}] -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.prices }}
+
+      - if:
+          - condition: template
+            value_template: "{{ future_prices | length > 0 }}"
+        then:
+          # Found acceptable future price, schedule dishwasher
+          - variables:
+              best_slot: "{{ future_prices | sort(attribute='price') | first }}"
+              scheduled_time: "{{ best_slot.time }}"
+              scheduled_price: "{{ best_slot.price }}"
+
+          # Turn off dishwasher or set Home Connect delayed start
+          - if:
+              - condition: template
+                value_template: "{{ use_home_connect }}"
+            then:
+              # Use Home Connect delayed start
+              - variables:
+                  delay_seconds: >
+                    {{ (scheduled_time - now()).total_seconds() | int }}
+              - action: homeconnect.set_program
+                target:
+                  entity_id: "{{ dishwasher }}"
+                data:
+                  program: "{{ home_connect_program }}"
+                  options:
+                    - key: "BSH.Common.Option.StartInRelative"
+                      value: "{{ delay_seconds }}"
+            else:
+              # Turn off dishwasher for manual scheduling
+              - action: homeassistant.turn_off
+                target:
+                  entity_id: "{{ dishwasher }}"
+
+          # Send notification about rescheduling
+          - if:
+              - condition: template
+                value_template: "{{ notification_entity != none }}"
+            then:
+              - action: "notify.{{ notification_entity.split('.')[1] }}"
+                data:
+                  title: "Dishwasher Rescheduled"
+                  message: >
+                    Current price too high: {{ current_price }}€/kWh
+                    Rescheduled for {{ scheduled_time.strftime('%H:%M') }}
+                    at {{ scheduled_price }}€/kWh
+
+          # Wait minimum delay before creating schedule (only if not using Home Connect)
+          - if:
+              - condition: template
+                value_template: "{{ not use_home_connect }}"
+            then:
+              - delay:
+                  minutes: "{{ min_delay }}"
+
+          # Create automation to turn on dishwasher at scheduled time (only if not using Home Connect)
+          - if:
+              - condition: template
+                value_template: "{{ not use_home_connect }}"
+            then:
+              - action: automation.create
+                data:
+                  automation_id: >
+                    dishwasher_scheduled_start_{{
+                      scheduled_time.strftime('%Y%m%d_%H%M') }}
+                  trigger:
+                    - platform: time
+                      at: "{{ scheduled_time.strftime('%H:%M') }}"
+                  condition:
+                    - condition: template
+                      value_template: >
+                        {{ states(pvpc_sensor) | float(1) <= max_price }}
+                  action:
+                    - action: homeassistant.turn_on
+                      target:
+                        entity_id: "{{ dishwasher }}"
+                    - if:
+                        - condition: template
+                          value_template: "{{ notification_entity != none }}"
+                      then:
+                        - action: "notify.{{ notification_entity.split('.')[1] }}"
+                          data:
+                            title: "Dishwasher Started (Scheduled)"
+                            message: >
+                              Dishwasher started as scheduled at
+                              {{ scheduled_price }}€/kWh
+                    # Clean up this automation after running
+                    - action: automation.turn_off
+                      target:
+                        entity_id: >
+                          automation.dishwasher_scheduled_start_{{
+                            scheduled_time.strftime('%Y%m%d_%H%M') }}
+                    - delay:
+                        seconds: 5
+                    - action: automation.delete
+                      target:
+                        entity_id: >
+                          automation.dishwasher_scheduled_start_{{
+                            scheduled_time.strftime('%Y%m%d_%H%M') }}
+
+        else:
+          # No acceptable future prices found
+          - if:
+              - condition: template
+                value_template: "{{ notification_entity != none }}"
+            then:
+              - action: "notify.{{ notification_entity.split('.')[1] }}"
+                data:
+                  title: "Dishwasher: No Cheap Hours Found"
+                  message: >
+                    Current price: {{ current_price }}€/kWh (too high)
+                    No acceptable prices found in next {{ check_hours }} hours.
+                    Dishwasher will run now despite high price.
+
+mode: single
+max_exceeded: silent
