@@ -114,7 +114,7 @@ variables:
 action:
   # Clean up any existing scheduled automations for this dishwasher
   - repeat:
-      count: 10
+      count: "{{ check_hours }}"
       sequence:
         - action: automation.turn_off
           target:
