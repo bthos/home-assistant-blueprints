@@ -101,21 +101,29 @@ blueprint:
     home_connect_program:
       name: Home Connect Program (Optional)
       description: >
-        Home Connect program to start. Available programs include auto_2,
-        eco_50, quick_65, quick_45, intensiv_70, intensiv_power, glas_40,
-        pre_rinse, and machine_care programs.
+        Home Connect program to start. Select from available dishwasher programs
+        with temperature and duration information.
       selector:
         select:
           options:
-            - dishcare_dishwasher_program_auto_2
-            - dishcare_dishwasher_program_eco_50
-            - dishcare_dishwasher_program_quick_65
-            - dishcare_dishwasher_program_quick_45
-            - dishcare_dishwasher_program_intensiv_70
-            - dishcare_dishwasher_program_intensiv_power
-            - dishcare_dishwasher_program_glas_40
-            - dishcare_dishwasher_program_pre_rinse
-            - dishcare_dishwasher_program_machine_care
+            - label: "Auto (45-65°C, 1:35h-2:15h)"
+              value: "dishcare_dishwasher_program_auto_2"
+            - label: "Eco (50°C, 4:30h)"
+              value: "dishcare_dishwasher_program_eco_50"
+            - label: "Intensive (70°C, 1:55h-2:15h)"
+              value: "dishcare_dishwasher_program_intensiv_70"
+            - label: "Intensive Power (70°C, 2:15h-2:25h)"
+              value: "dishcare_dishwasher_program_intensiv_power"
+            - label: "Quick (65°C, 1h)"
+              value: "dishcare_dishwasher_program_quick_65"
+            - label: "Quick (45°C, 0:30h)"
+              value: "dishcare_dishwasher_program_quick_45"
+            - label: "Glass (40°C, 1:20h)"
+              value: "dishcare_dishwasher_program_glas_40"
+            - label: "Pre-rinse (cold, 0:10h-0:15h)"
+              value: "dishcare_dishwasher_program_pre_rinse"
+            - label: "Machine Care (70°C, 1h-1:30h)"
+              value: "dishcare_dishwasher_program_machine_care"
       default: "dishcare_dishwasher_program_auto_2"
 
 trigger:
