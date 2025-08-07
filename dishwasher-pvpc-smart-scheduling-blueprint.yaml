@@ -122,12 +122,6 @@ action:
               automation.dishwasher_scheduled_start_{{
                 (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
           continue_on_error: true
-        - action: automation.delete
-          target:
-            entity_id: >
-              automation.dishwasher_scheduled_start_{{
-                (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
-          continue_on_error: true
 
   - variables:
       current_price: "{{ states(pvpc_sensor) | float(0) }}"
@@ -257,13 +251,6 @@ action:
                               {{ scheduled_price }}€/kWh
                     # Clean up this automation after running
                     - action: automation.turn_off
-                      target:
-                        entity_id: >
-                          automation.dishwasher_scheduled_start_{{
-                            scheduled_time.strftime('%Y%m%d_%H%M') }}
-                    - delay:
-                        seconds: 5
-                    - action: automation.delete
                       target:
                         entity_id: >
                           automation.dishwasher_scheduled_start_{{
