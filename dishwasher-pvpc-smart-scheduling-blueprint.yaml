@@ -198,54 +198,46 @@ action:
             {%- set current_time = now() -%}
             {%- set current_hour = current_time.hour -%}
             {%- set duration_hours = program_duration | float -%}
-            {%- set duration_slots = duration_hours | round(0, 'ceil') -%}
-            {%- set ns = namespace(best_slot=none, best_avg=999) -%}
+            {%- set duration_slots = duration_hours | round(0, 'ceil') | int -%}
+            {%- set ns = namespace(best_slot=none, best_avg=999.0) -%}
 
-            {%- if hourly_prices | length > 0 -%}
-              {%- for start_hour in range(current_hour,
-                  current_hour + check_hours) -%}
+            {%- if hourly_prices | length >= duration_slots -%}
+              {%- for start_hour in range(current_hour, current_hour + check_hours) -%}
                 {%- set hour_24 = start_hour % 24 -%}
-                {%- set hour_24_str = '%02d' | format(hour_24) -%}
-                {%- if hour_24_str in hourly_prices -%}
-                  {%- set ns_slot = namespace(prices=[], hours=[]) -%}
-                  {%- set valid_slot = true -%}
+                {%- set hour_str = '%02d' | format(hour_24) -%}
+                
+                {%- if hour_str in hourly_prices -%}
+                  {%- set slot_ns = namespace(prices=[], hours=[], valid=true) -%}
 
-                  {%- for slot_offset in range(duration_slots) -%}
-                    {%- set slot_hour = (hour_24 + slot_offset) % 24 -%}
-                    {%- set slot_hour_str = '%02d' | format(slot_hour) -%}
-                    {%- if slot_hour_str in hourly_prices -%}
-                      {%- set ns_slot.prices = ns_slot.prices +
-                          [hourly_prices[slot_hour_str]] -%}
-                      {%- set ns_slot.hours = ns_slot.hours +
-                          [slot_hour] -%}
-                    {%- else -%}
-                      {%- set valid_slot = false -%}
+                  {%- for i in range(duration_slots) -%}
+                    {%- if slot_ns.valid -%}
+                      {%- set check_hour = (hour_24 + i) % 24 -%}
+                      {%- set check_hour_str = '%02d' | format(check_hour) -%}
+                      {%- if check_hour_str in hourly_prices -%}
+                        {%- set slot_ns.prices = slot_ns.prices + [hourly_prices[check_hour_str]] -%}
+                        {%- set slot_ns.hours = slot_ns.hours + [check_hour] -%}
+                      {%- else -%}
+                        {%- set slot_ns.valid = false -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- endfor -%}
 
-                  {%- if valid_slot and
-                      ns_slot.prices | length >= duration_slots -%}
-                    {%- set avg_price = ns_slot.prices | sum /
-                        ns_slot.prices | length -%}
-                    {%- if avg_price <= max_price and
-                        avg_price < ns.best_avg -%}
-                      {%- set start_time = current_time.replace(
-                          hour=hour_24, minute=0, second=0,
-                          microsecond=0) -%}
+                  {%- if slot_ns.valid and slot_ns.prices | length == duration_slots -%}
+                    {%- set avg_price = (slot_ns.prices | sum) / (slot_ns.prices | length) -%}
+                    {%- if avg_price <= max_price and avg_price < ns.best_avg -%}
+                      {%- set start_time = current_time.replace(hour=hour_24, minute=0, second=0, microsecond=0) -%}
                       {%- if start_time <= current_time -%}
-                        {%- set start_time = start_time +
-                            timedelta(days=1) -%}
+                        {%- set start_time = start_time + timedelta(days=1) -%}
                       {%- endif -%}
-                      {%- set end_time = start_time +
-                          timedelta(hours=duration_hours) -%}
+                      {%- set end_time = start_time + timedelta(hours=duration_hours) -%}
                       {%- set ns.best_avg = avg_price -%}
                       {%- set ns.best_slot = {
                           'start_time': start_time,
                           'end_time': end_time,
                           'avg_price': avg_price,
-                          'max_price': ns_slot.prices | max,
-                          'prices': ns_slot.prices,
-                          'hours': ns_slot.hours
+                          'max_price': slot_ns.prices | max,
+                          'prices': slot_ns.prices,
+                          'hours': slot_ns.hours
                         } -%}
                     {%- endif -%}
                   {%- endif -%}
