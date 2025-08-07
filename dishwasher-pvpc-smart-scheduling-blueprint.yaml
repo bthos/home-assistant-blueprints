@@ -77,7 +77,6 @@ blueprint:
           domain:
             - notify
       default:
-      required: false
 
     use_home_connect:
       name: Use Home Connect Delayed Start
@@ -96,7 +95,6 @@ blueprint:
       selector:
         text:
       default: "Dishcare.Dishwasher.Program.Auto2"
-      required: false
 
 trigger:
   - platform: state
