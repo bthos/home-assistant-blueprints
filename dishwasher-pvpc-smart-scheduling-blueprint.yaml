@@ -188,7 +188,7 @@ action:
               # Use Home Connect delayed start
               - variables:
                   delay_seconds: >
-                    {{ (scheduled_time - now()).total_seconds() | int }}
+                    {{ ((scheduled_time - now()).total_seconds() | int) | max(1) }}
               - action: homeconnect.set_program
                 target:
                   entity_id: "{{ dishwasher }}"
