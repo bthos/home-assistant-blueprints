@@ -240,7 +240,7 @@ action:
                   condition:
                     - condition: template
                       value_template: >
-                        {{ states(pvpc_sensor) | float(1) <= max_price }}
+                        {{ states(pvpc_sensor) | float(999) <= max_price }}
                   action:
                     - action: homeassistant.turn_on
                       target:
