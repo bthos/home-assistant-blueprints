@@ -101,12 +101,22 @@ blueprint:
     home_connect_program:
       name: Home Connect Program (Optional)
       description: >
-        Home Connect program to start
-        (e.g., 'Dishcare.Dishwasher.Program.Auto2')
-        Required if using Home Connect delayed start
+        Home Connect program to start. Available programs include auto_2,
+        eco_50, quick_65, quick_45, intensiv_70, intensiv_power, glas_40,
+        pre_rinse, and machine_care programs.
       selector:
-        text:
-      default: "Dishcare.Dishwasher.Program.Auto2"
+        select:
+          options:
+            - dishcare_dishwasher_program_auto_2
+            - dishcare_dishwasher_program_eco_50
+            - dishcare_dishwasher_program_quick_65
+            - dishcare_dishwasher_program_quick_45
+            - dishcare_dishwasher_program_intensiv_70
+            - dishcare_dishwasher_program_intensiv_power
+            - dishcare_dishwasher_program_glas_40
+            - dishcare_dishwasher_program_pre_rinse
+            - dishcare_dishwasher_program_machine_care
+      default: "dishcare_dishwasher_program_auto_2"
 
 trigger:
   - platform: state
