@@ -122,7 +122,7 @@ action:
               automation.dishwasher_scheduled_start_{{
                 (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
           continue_on_error: true
-        - action: automation.delete
+        - action: automation.remove
           target:
             entity_id: >
               automation.dishwasher_scheduled_start_{{
@@ -263,7 +263,7 @@ action:
                             scheduled_time.strftime('%Y%m%d_%H%M') }}
                     - delay:
                         seconds: 5
-                    - action: automation.delete
+                    - action: automation.remove
                       target:
                         entity_id: >
                           automation.dishwasher_scheduled_start_{{
