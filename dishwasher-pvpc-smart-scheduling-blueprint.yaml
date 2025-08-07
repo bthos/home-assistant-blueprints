@@ -161,7 +161,7 @@ action:
               {%- set hour_attr = 'price_next_' +
                   (i | string) + 'h' -%}
               {%- set future_price =
-                  state_attr(pvpc_sensor, hour_attr) | float(1) -%}
+                  state_attr(pvpc_sensor, hour_attr) | float(999) -%}
               {%- if future_price <= max_price and future_price > 0 -%}
                 {%- set ns.prices = ns.prices +
                     [{'hour': i, 'price': future_price,
