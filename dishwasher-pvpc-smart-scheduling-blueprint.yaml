@@ -58,6 +58,17 @@ blueprint:
           unit_of_measurement: hours
       default: 6
 
+    program_duration:
+      name: Dishwasher Program Duration
+      description: How many hours the dishwasher program runs
+      selector:
+        number:
+          min: 0.5
+          max: 4.0
+          step: 0.5
+          unit_of_measurement: hours
+      default: 2.0
+
     min_delay_minutes:
       name: Minimum Delay Before Rescheduling
       description: Minimum minutes to wait before attempting to reschedule
@@ -90,7 +101,8 @@ blueprint:
     home_connect_program:
       name: Home Connect Program (Optional)
       description: >
-        Home Connect program to start (e.g., 'Dishcare.Dishwasher.Program.Auto2')
+        Home Connect program to start
+        (e.g., 'Dishcare.Dishwasher.Program.Auto2')
         Required if using Home Connect delayed start
       selector:
         text:
@@ -106,6 +118,7 @@ variables:
   pvpc_sensor: !input pvpc_sensor
   max_price: !input max_price_threshold
   check_hours: !input check_hours_ahead
+  program_duration: !input program_duration
   min_delay: !input min_delay_minutes
   notification_entity: !input notification_device
   use_home_connect: !input use_home_connect
@@ -120,7 +133,8 @@ action:
           target:
             entity_id: >
               automation.dishwasher_scheduled_start_{{
-                (now() + timedelta(hours=repeat.index)).strftime('%Y%m%d_%H%M') }}
+                (now() + timedelta(hours=repeat.index)).strftime(
+                  '%Y%m%d_%H%M') }}
           continue_on_error: true
 
   - variables:
@@ -146,33 +160,102 @@ action:
     else:
       # Price is too high, need to reschedule
       - variables:
-          # Get PVPC prices for next hours to find cheapest slot
-          future_prices: >
-            {%- set ns = namespace(prices=[]) -%}
-            {%- for i in range(1, check_hours + 1) -%}
-              {%- set future_time = (now() + timedelta(hours=i)) -%}
-              {%- set hour_str = future_time.strftime('%H') -%}
-              {%- set hour_attr = 'price_next_' +
-                  (i | string) + 'h' -%}
-              {%- set future_price =
-                  state_attr(pvpc_sensor, hour_attr) | float(999) -%}
-              {%- if future_price <= max_price and future_price > 0 -%}
-                {%- set ns.prices = ns.prices +
-                    [{'hour': i, 'price': future_price,
-                      'time': future_time}] -%}
-              {%- endif -%}
-            {%- endfor -%}
-            {{ ns.prices }}
+          # Get PVPC price data using the comprehensive approach
+          today_prices: >
+            {{ state_attr(pvpc_sensor, 'raw_today') | default([], true) }}
+          tomorrow_prices: >
+            {{ state_attr(pvpc_sensor, 'raw_tomorrow') |
+               default([], true) }}
+          all_prices: >
+            {{ state_attr(pvpc_sensor, 'prices') | default([], true) }}
+          # Combine available price data
+          price_data: >
+            {%- set data = all_prices or (today_prices + tomorrow_prices) -%}
+            {%- if data and data | length > 0 and
+                data[0] is mapping -%}
+              {{ data }}
+            {%- else -%}
+              []
+            {%- endif -%}
+
+      - variables:
+          # Find cheapest consecutive hours for dishwasher program
+          optimal_slot: >
+            {%- set current_time = now() -%}
+            {%- set end_time = current_time +
+                timedelta(hours=check_hours) -%}
+            {%- set duration_hours = program_duration | float -%}
+            {%- set ns = namespace(best_slot=none, best_avg=999) -%}
+
+            {%- if price_data | length > 0 -%}
+              {%- for item in price_data -%}
+                {%- set start_time = item.datetime | as_datetime
+                    if 'datetime' in item
+                    else item.start | as_datetime
+                    if 'start' in item
+                    else none -%}
+                {%- if start_time -%}
+                  {%- set start_time = start_time | as_local -%}
+                  {%- set slot_end = start_time +
+                      timedelta(hours=duration_hours) -%}
+
+                  {%- if start_time >= current_time and
+                      slot_end <= end_time -%}
+                    {%- set ns_slot = namespace(prices=[], valid=true) -%}
+
+                    {%- for check_item in price_data -%}
+                      {%- set check_time = check_item.datetime | as_datetime
+                          if 'datetime' in check_item
+                          else check_item.start | as_datetime
+                          if 'start' in check_item
+                          else none -%}
+                      {%- if check_time -%}
+                        {%- set check_time = check_time | as_local -%}
+                        {%- if start_time <= check_time < slot_end -%}
+                          {%- set price = check_item.value | float
+                              if 'value' in check_item
+                              else check_item.price | float
+                              if 'price' in check_item
+                              else 999 -%}
+                          {%- set ns_slot.prices = ns_slot.prices +
+                              [price] -%}
+                        {%- endif -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+
+                    {%- if ns_slot.prices | length >=
+                        (duration_hours | round(0, 'ceil')) -%}
+                      {%- set avg_price = ns_slot.prices | sum /
+                          ns_slot.prices | length -%}
+                      {%- if avg_price <= max_price and
+                          avg_price < ns.best_avg -%}
+                        {%- set ns.best_avg = avg_price -%}
+                        {%- set ns.best_slot = {
+                            'start_time': start_time,
+                            'end_time': slot_end,
+                            'avg_price': avg_price,
+                            'max_price': ns_slot.prices | max,
+                            'prices': ns_slot.prices
+                          } -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+
+            {{ ns.best_slot }}
 
       - if:
           - condition: template
-            value_template: "{{ future_prices | length > 0 }}"
+            value_template: "{{ optimal_slot != none }}"
         then:
-          # Found acceptable future price, schedule dishwasher
+          # Found optimal consecutive time slot, schedule dishwasher
           - variables:
-              best_slot: "{{ future_prices | sort(attribute='price') | first }}"
-              scheduled_time: "{{ best_slot.time }}"
-              scheduled_price: "{{ best_slot.price }}"
+              scheduled_time: "{{ optimal_slot.start_time }}"
+              scheduled_end: "{{ optimal_slot.end_time }}"
+              avg_price: "{{ optimal_slot.avg_price }}"
+              max_slot_price: "{{ optimal_slot.max_price }}"
 
           # Turn off dishwasher or set Home Connect delayed start
           - if:
@@ -182,7 +265,8 @@ action:
               # Use Home Connect delayed start
               - variables:
                   delay_seconds: >
-                    {{ ((scheduled_time - now()).total_seconds() | int) | max(1) }}
+                    {{ ((scheduled_time - now()).total_seconds() | int) |
+                       max(1) }}
               - action: homeconnect.set_program
                 target:
                   entity_id: "{{ dishwasher }}"
@@ -208,9 +292,12 @@ action:
                   message: >
                     Current price too high: {{ current_price }}€/kWh
                     Rescheduled for {{ scheduled_time.strftime('%H:%M') }}
-                    at {{ scheduled_price }}€/kWh
+                    ({{ program_duration }}h program)
+                    Average price: {{ avg_price | round(3) }}€/kWh
+                    Max price: {{ max_slot_price | round(3) }}€/kWh
 
-          # Wait minimum delay before creating schedule (only if not using Home Connect)
+          # Wait minimum delay before creating schedule
+          # (only if not using Home Connect)
           - if:
               - condition: template
                 value_template: "{{ not use_home_connect }}"
@@ -218,7 +305,8 @@ action:
               - delay:
                   minutes: "{{ min_delay }}"
 
-          # Create automation to turn on dishwasher at scheduled time (only if not using Home Connect)
+          # Create automation to turn on dishwasher at scheduled time
+          # (only if not using Home Connect)
           - if:
               - condition: template
                 value_template: "{{ not use_home_connect }}"
@@ -243,12 +331,14 @@ action:
                         - condition: template
                           value_template: "{{ notification_entity != none }}"
                       then:
-                        - action: "notify.{{ notification_entity.split('.')[1] }}"
+                        - action: >
+                            notify.{{
+                              notification_entity.split('.')[1] }}
                           data:
                             title: "Dishwasher Started (Scheduled)"
                             message: >
-                              Dishwasher started as scheduled at
-                              {{ scheduled_price }}€/kWh
+                              Dishwasher started as scheduled
+                              Average price: {{ avg_price | round(3) }}€/kWh
                     # Clean up this automation after running
                     - action: automation.turn_off
                       target:
@@ -257,17 +347,18 @@ action:
                             scheduled_time.strftime('%Y%m%d_%H%M') }}
 
         else:
-          # No acceptable future prices found
+          # No optimal consecutive time slot found
           - if:
               - condition: template
                 value_template: "{{ notification_entity != none }}"
             then:
               - action: "notify.{{ notification_entity.split('.')[1] }}"
                 data:
-                  title: "Dishwasher: No Cheap Hours Found"
+                  title: "Dishwasher: No Optimal Schedule Found"
                   message: >
                     Current price: {{ current_price }}€/kWh (too high)
-                    No acceptable prices found in next {{ check_hours }} hours.
+                    No {{ program_duration }}h slot found under
+                    {{ max_price }}€/kWh in next {{ check_hours }} hours.
                     Dishwasher will run now despite high price.
 
 mode: single
