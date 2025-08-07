@@ -199,11 +199,10 @@ action:
             {%- set current_hour = current_time.hour -%}
             {%- set duration_hours = program_duration | float -%}
             {%- set duration_slots = duration_hours | round(0, 'ceil') | int -%}
-            {%- set ns = namespace(best_slot=none, best_avg=999.0) -%}
+            {%- set ns = namespace(best_slot=none, best_avg=999.0, best_slot_any=none, best_avg_any=999.0) -%}
 
             {%- if hourly_prices | length >= duration_slots -%}
-              {%- for start_hour in range(current_hour, current_hour + check_hours) -%}
-                {%- set hour_24 = start_hour % 24 -%}
+              {%- for hour_24 in range(24) -%}
                 {%- set hour_str = '%02d' | format(hour_24) -%}
                 
                 {%- if hour_str in hourly_prices -%}
@@ -224,28 +223,46 @@ action:
 
                   {%- if slot_ns.valid and slot_ns.prices | length == duration_slots -%}
                     {%- set avg_price = (slot_ns.prices | sum) / (slot_ns.prices | length) -%}
-                    {%- if avg_price <= max_price and avg_price < ns.best_avg -%}
+                    {%- if avg_price <= max_price -%}
                       {%- set start_time = current_time.replace(hour=hour_24, minute=0, second=0, microsecond=0) -%}
                       {%- if start_time <= current_time -%}
                         {%- set start_time = start_time + timedelta(days=1) -%}
                       {%- endif -%}
                       {%- set end_time = start_time + timedelta(hours=duration_hours) -%}
-                      {%- set ns.best_avg = avg_price -%}
-                      {%- set ns.best_slot = {
-                          'start_time': start_time,
-                          'end_time': end_time,
-                          'avg_price': avg_price,
-                          'max_price': slot_ns.prices | max,
-                          'prices': slot_ns.prices,
-                          'hours': slot_ns.hours
-                        } -%}
+                      {%- set max_delay_hours = ((start_time - current_time).total_seconds() / 3600) -%}
+                      
+                      {%- if avg_price < ns.best_avg_any -%}
+                        {%- set ns.best_avg_any = avg_price -%}
+                        {%- set ns.best_slot_any = {
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'avg_price': avg_price,
+                            'max_price': slot_ns.prices | max,
+                            'prices': slot_ns.prices,
+                            'hours': slot_ns.hours,
+                            'delay_hours': max_delay_hours
+                          } -%}
+                      {%- endif -%}
+                      
+                      {%- if max_delay_hours <= check_hours and avg_price < ns.best_avg -%}
+                        {%- set ns.best_avg = avg_price -%}
+                        {%- set ns.best_slot = {
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'avg_price': avg_price,
+                            'max_price': slot_ns.prices | max,
+                            'prices': slot_ns.prices,
+                            'hours': slot_ns.hours,
+                            'delay_hours': max_delay_hours
+                          } -%}
+                      {%- endif -%}
                     {%- endif -%}
                   {%- endif -%}
                 {%- endif -%}
               {%- endfor -%}
             {%- endif -%}
 
-            {{ ns.best_slot }}
+            {{ ns.best_slot if ns.best_slot != none else ns.best_slot_any }}
 
       - if:
           - condition: template
@@ -296,6 +313,9 @@ action:
                     ({{ program_duration }}h program)
                     Average price: {{ avg_price | round(3) }}€/kWh
                     Max price: {{ max_slot_price | round(3) }}€/kWh
+                    {%- if optimal_slot.delay_hours | default(0) > check_hours %}
+                    Note: Optimal time is {{ optimal_slot.delay_hours | round(1) }}h away (beyond {{ check_hours }}h preference)
+                    {%- endif %}
 
           # Wait minimum delay before creating schedule
           # (only if not using Home Connect)
