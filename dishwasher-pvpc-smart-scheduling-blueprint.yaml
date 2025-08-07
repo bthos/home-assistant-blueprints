@@ -179,7 +179,7 @@ action:
               {%- set price = state_attr(pvpc_sensor, price_attr) |
                   float(999) -%}
               {%- if price != 999 -%}
-                {%- set ns.prices = dict(ns.prices, **{hour: price}) -%}
+                {%- set ns.prices = dict(ns.prices, **{hour_str: price}) -%}
               {%- endif -%}
             {%- endfor -%}
             {{ ns.prices }}
@@ -197,15 +197,17 @@ action:
               {%- for start_hour in range(current_hour,
                   current_hour + check_hours) -%}
                 {%- set hour_24 = start_hour % 24 -%}
-                {%- if hour_24 in hourly_prices -%}
+                {%- set hour_24_str = '%02d' | format(hour_24) -%}
+                {%- if hour_24_str in hourly_prices -%}
                   {%- set ns_slot = namespace(prices=[], hours=[]) -%}
                   {%- set valid_slot = true -%}
 
                   {%- for slot_offset in range(duration_slots) -%}
                     {%- set slot_hour = (hour_24 + slot_offset) % 24 -%}
-                    {%- if slot_hour in hourly_prices -%}
+                    {%- set slot_hour_str = '%02d' | format(slot_hour) -%}
+                    {%- if slot_hour_str in hourly_prices -%}
                       {%- set ns_slot.prices = ns_slot.prices +
-                          [hourly_prices[slot_hour]] -%}
+                          [hourly_prices[slot_hour_str]] -%}
                       {%- set ns_slot.hours = ns_slot.hours +
                           [slot_hour] -%}
                     {%- else -%}
