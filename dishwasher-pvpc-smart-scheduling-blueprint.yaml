@@ -160,84 +160,73 @@ action:
     else:
       # Price is too high, need to reschedule
       - variables:
-          # Get PVPC price data using the comprehensive approach
-          today_prices: >
-            {{ state_attr(pvpc_sensor, 'raw_today') | default([], true) }}
-          tomorrow_prices: >
-            {{ state_attr(pvpc_sensor, 'raw_tomorrow') |
-               default([], true) }}
-          all_prices: >
-            {{ state_attr(pvpc_sensor, 'prices') | default([], true) }}
-          # Combine available price data
-          price_data: >
-            {%- set data = all_prices or (today_prices + tomorrow_prices) -%}
-            {%- if data and data | length > 0 and
-                data[0] is mapping -%}
-              {{ data }}
-            {%- else -%}
-              []
-            {%- endif -%}
+          # Get PVPC price data from individual hourly attributes
+          hourly_prices: >
+            {%- set ns = namespace(prices={}) -%}
+            {%- for hour in range(24) -%}
+              {%- set hour_str = '%02d' | format(hour) -%}
+              {%- set price_attr = 'price_' + hour_str + 'h' -%}
+              {%- set price = state_attr(pvpc_sensor, price_attr) |
+                  float(999) -%}
+              {%- if price != 999 -%}
+                {%- set ns.prices = dict(ns.prices, **{hour: price}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.prices }}
 
       - variables:
           # Find cheapest consecutive hours for dishwasher program
           optimal_slot: >
             {%- set current_time = now() -%}
-            {%- set end_time = current_time +
-                timedelta(hours=check_hours) -%}
+            {%- set current_hour = current_time.hour -%}
             {%- set duration_hours = program_duration | float -%}
+            {%- set duration_slots = duration_hours | round(0, 'ceil') -%}
             {%- set ns = namespace(best_slot=none, best_avg=999) -%}
 
-            {%- if price_data | length > 0 -%}
-              {%- for item in price_data -%}
-                {%- set start_time = item.datetime | as_datetime
-                    if 'datetime' in item
-                    else item.start | as_datetime
-                    if 'start' in item
-                    else none -%}
-                {%- if start_time -%}
-                  {%- set start_time = start_time | as_local -%}
-                  {%- set slot_end = start_time +
-                      timedelta(hours=duration_hours) -%}
+            {%- if hourly_prices | length > 0 -%}
+              {%- for start_hour in range(current_hour,
+                  current_hour + check_hours) -%}
+                {%- set hour_24 = start_hour % 24 -%}
+                {%- if hour_24 in hourly_prices -%}
+                  {%- set ns_slot = namespace(prices=[], hours=[]) -%}
+                  {%- set valid_slot = true -%}
 
-                  {%- if start_time >= current_time and
-                      slot_end <= end_time -%}
-                    {%- set ns_slot = namespace(prices=[], valid=true) -%}
+                  {%- for slot_offset in range(duration_slots) -%}
+                    {%- set slot_hour = (hour_24 + slot_offset) % 24 -%}
+                    {%- if slot_hour in hourly_prices -%}
+                      {%- set ns_slot.prices = ns_slot.prices +
+                          [hourly_prices[slot_hour]] -%}
+                      {%- set ns_slot.hours = ns_slot.hours +
+                          [slot_hour] -%}
+                    {%- else -%}
+                      {%- set valid_slot = false -%}
+                    {%- endif -%}
+                  {%- endfor -%}
 
-                    {%- for check_item in price_data -%}
-                      {%- set check_time = check_item.datetime | as_datetime
-                          if 'datetime' in check_item
-                          else check_item.start | as_datetime
-                          if 'start' in check_item
-                          else none -%}
-                      {%- if check_time -%}
-                        {%- set check_time = check_time | as_local -%}
-                        {%- if start_time <= check_time < slot_end -%}
-                          {%- set price = check_item.value | float
-                              if 'value' in check_item
-                              else check_item.price | float
-                              if 'price' in check_item
-                              else 999 -%}
-                          {%- set ns_slot.prices = ns_slot.prices +
-                              [price] -%}
-                        {%- endif -%}
+                  {%- if valid_slot and
+                      ns_slot.prices | length >= duration_slots -%}
+                    {%- set avg_price = ns_slot.prices | sum /
+                        ns_slot.prices | length -%}
+                    {%- if avg_price <= max_price and
+                        avg_price < ns.best_avg -%}
+                      {%- set start_time = current_time.replace(
+                          hour=hour_24, minute=0, second=0,
+                          microsecond=0) -%}
+                      {%- if start_time <= current_time -%}
+                        {%- set start_time = start_time +
+                            timedelta(days=1) -%}
                       {%- endif -%}
-                    {%- endfor -%}
-
-                    {%- if ns_slot.prices | length >=
-                        (duration_hours | round(0, 'ceil')) -%}
-                      {%- set avg_price = ns_slot.prices | sum /
-                          ns_slot.prices | length -%}
-                      {%- if avg_price <= max_price and
-                          avg_price < ns.best_avg -%}
-                        {%- set ns.best_avg = avg_price -%}
-                        {%- set ns.best_slot = {
-                            'start_time': start_time,
-                            'end_time': slot_end,
-                            'avg_price': avg_price,
-                            'max_price': ns_slot.prices | max,
-                            'prices': ns_slot.prices
-                          } -%}
-                      {%- endif -%}
+                      {%- set end_time = start_time +
+                          timedelta(hours=duration_hours) -%}
+                      {%- set ns.best_avg = avg_price -%}
+                      {%- set ns.best_slot = {
+                          'start_time': start_time,
+                          'end_time': end_time,
+                          'avg_price': avg_price,
+                          'max_price': ns_slot.prices | max,
+                          'prices': ns_slot.prices,
+                          'hours': ns_slot.hours
+                        } -%}
                     {%- endif -%}
                   {%- endif -%}
                 {%- endif -%}
