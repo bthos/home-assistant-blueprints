@@ -136,16 +136,6 @@ blueprint:
           domain: button
       default:
 
-    program_switch:
-      name: Program Switch (Optional)
-      description: >
-        Switch entity to set the dishwasher program (e.g., switch.dishwasher_program_auto2).
-        Used to select the program before starting or rescheduling.
-      selector:
-        entity:
-          domain: switch
-      default:
-
 trigger:
   - platform: state
     entity_id: !input dishwasher_device
@@ -162,13 +152,21 @@ variables:
   use_home_connect: !input use_home_connect
   home_connect_program: !input home_connect_program
   pause_button: !input pause_program_button
-  program_switch: !input program_switch
+  # Construct program switch entity from home_connect_program value
+  program_switch: >
+    {%- if home_connect_program -%}
+      {%- set program_name = home_connect_program.replace('dishcare_', '') -%}
+      {%- set program_name = program_name | regex_replace('_(\d+)$', '\\1') -%}
+      switch.{{ program_name }}
+    {%- else -%}
+      
+    {%- endif -%}
 
 action:
-  # Set the program using program switch if configured
+  # Set the program using program switch if home_connect_program is configured
   - if:
       - condition: template
-        value_template: "{{ program_switch != none }}"
+        value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
     then:
       - action: homeassistant.turn_on
         target:
@@ -383,7 +381,7 @@ action:
                     # Set program using program switch if available
                     - if:
                         - condition: template
-                          value_template: "{{ program_switch != none }}"
+                          value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
                       then:
                         - action: homeassistant.turn_on
                           target:
