@@ -7,6 +7,7 @@ A collection of useful Home Assistant blueprints to automate and enhance your sm
 | Blueprint | Description | Install |
 |-----------|-------------|---------|
 | [RGB Color Cycling](rgb-color-cycling-blueprint.yaml) | Smooth RGB color cycling script that transitions through the color spectrum. Creates beautiful smooth color transitions through Cyan→Blue→Magenta→Red→Yellow→Green→Cyan cycle. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Frgb-color-cycling-blueprint.yaml) |
+| [Dishwasher PVPC Smart Scheduling](dishwasher-pvpc-smart-scheduling-blueprint.yaml) | Smart dishwasher scheduling based on PVPC electricity pricing. Automatically checks PVPC prices when dishwasher is turned on and reschedules to cheaper hours if current price is too high. Supports Home Connect for native delayed start. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fdishwasher-pvpc-smart-scheduling-blueprint.yaml) |
 
 ## Usage Instructions
 
@@ -27,6 +28,27 @@ A collection of useful Home Assistant blueprints to automate and enhance your sm
 4. Save your automation with a descriptive name
 
 ### Blueprint-Specific Requirements
+
+#### Dishwasher PVPC Smart Scheduling Blueprint
+
+Before using this blueprint, you need:
+
+**PVPC Hourly Pricing Integration:**
+- Install the PVPC integration from Home Assistant integrations
+- Ensure you have a `sensor.pvpc` entity providing electricity prices
+
+**Dishwasher Device:**
+- A controllable dishwasher device (switch, smart plug, or Home Connect appliance)
+
+**Optional Home Connect Setup:**
+- Home Connect integration configured for native delayed start functionality
+- Dishwasher program name (e.g., 'Dishcare.Dishwasher.Program.Auto2')
+
+**Usage Tips:**
+- Set your maximum acceptable electricity price threshold
+- The blueprint will automatically find the cheapest hour within your specified time window
+- With Home Connect, it uses native delayed start; without it, turns device off/on at scheduled time
+- Notifications help track scheduling decisions and price information
 
 #### RGB Color Cycling Blueprint
 
