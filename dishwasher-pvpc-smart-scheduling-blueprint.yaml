@@ -91,14 +91,15 @@ blueprint:
             - notify
       default:
 
-    use_home_connect:
-      name: Use Home Connect Delayed Start
+    dishwasher_active_program:
+      name: Dishwasher Active Program Select
       description: >
-        Enable if your dishwasher supports Home Connect and you want to use
-        native delayed start instead of turning device off/on
+        Select entity for setting the active dishwasher program
+        (e.g., select.dishwasher_active_program)
       selector:
-        boolean:
-      default: false
+        entity:
+          domain: select
+      default: select.dishwasher_active_program
 
     home_connect_program:
       name: Home Connect Program (Optional)
@@ -152,7 +153,7 @@ variables:
   program_duration: !input program_duration
   min_delay: !input min_delay_minutes
   notification_entity: !input notification_device
-  use_home_connect: !input use_home_connect
+  dishwasher_active_program: !input dishwasher_active_program
   home_connect_program: !input home_connect_program
   stop_button: !input stop_program_button
 
@@ -168,7 +169,7 @@ action:
     then:
       - action: select.select_option
         target:
-          entity_id: select.dishwasher_active_program
+          entity_id: "{{ dishwasher_active_program }}"
         data:
           option: "{{ home_connect_program }}"
 
@@ -303,37 +304,18 @@ action:
               avg_price: "{{ optimal_slot.avg_price }}"
               max_slot_price: "{{ optimal_slot.max_price }}"
 
-          # Turn off dishwasher or set Home Connect delayed start
+          # Use stop button if available, otherwise turn off dishwasher
           - if:
               - condition: template
-                value_template: "{{ use_home_connect }}"
+                value_template: "{{ stop_button != none }}"
             then:
-              # Use Home Connect delayed start
-              - variables:
-                  delay_seconds: >
-                    {{ ((scheduled_time - now()).total_seconds() | int) |
-                       max(1) }}
-              - action: homeconnect.set_program
+              - action: button.press
+                target:
+                  entity_id: "{{ stop_button }}"
+            else:
+              - action: switch.turn_off
                 target:
                   entity_id: "{{ dishwasher_power }}"
-                data:
-                  program: "{{ home_connect_program }}"
-                  options:
-                    - key: "BSH.Common.Option.StartInRelative"
-                      value: "{{ delay_seconds }}"
-            else:
-              # Use stop button if available, otherwise turn off dishwasher
-              - if:
-                  - condition: template
-                    value_template: "{{ stop_button != none }}"
-                then:
-                  - action: button.press
-                    target:
-                      entity_id: "{{ stop_button }}"
-                else:
-                  - action: switch.turn_off
-                    target:
-                      entity_id: "{{ dishwasher_power }}"
 
           # Send notification about rescheduling
           - if:
@@ -351,22 +333,12 @@ action:
                     Max price: {{ max_slot_price | round(3) }}€/kWh
 
           # Wait minimum delay before creating schedule
-          # (only if not using Home Connect)
-          - if:
-              - condition: template
-                value_template: "{{ not use_home_connect }}"
-            then:
-              - delay:
-                  minutes: "{{ min_delay }}"
+          - delay:
+              minutes: "{{ min_delay }}"
 
           # Create automation to turn on dishwasher at scheduled time
-          # (only if not using Home Connect)
-          - if:
-              - condition: template
-                value_template: "{{ not use_home_connect }}"
-            then:
-              - action: automation.create
-                data:
+          - action: automation.create
+            data:
                   automation_id: >
                     dishwasher_scheduled_start_{{
                       scheduled_time.strftime('%Y%m%d_%H%M') }}
@@ -388,7 +360,7 @@ action:
                       then:
                         - action: select.select_option
                           target:
-                            entity_id: select.dishwasher_active_program
+                            entity_id: "{{ dishwasher_active_program }}"
                           data:
                             option: "{{ home_connect_program }}"
                     - action: switch.turn_on
