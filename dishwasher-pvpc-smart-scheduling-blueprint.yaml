@@ -126,11 +126,11 @@ blueprint:
               value: "dishcare_dishwasher_program_machine_care"
       default: "dishcare_dishwasher_program_auto_2"
 
-    pause_program_button:
-      name: Pause Program Button (Optional)
+    stop_program_button:
+      name: Stop Program Button (Optional)
       description: >
-        Button entity to pause the dishwasher program instead of turning device off.
-        Use this for dishwashers that support pausing (e.g., button.dishwasher_pause_program)
+        Button entity to stop the dishwasher program instead of turning device off.
+        Use this for dishwashers that support stopping (e.g., button.dishwasher_stop_program)
       selector:
         entity:
           domain: button
@@ -151,7 +151,7 @@ variables:
   notification_entity: !input notification_device
   use_home_connect: !input use_home_connect
   home_connect_program: !input home_connect_program
-  pause_button: !input pause_program_button
+  stop_button: !input stop_program_button
 
 action:
   # Set the program using select entities if home_connect_program is configured
@@ -320,14 +320,14 @@ action:
                     - key: "BSH.Common.Option.StartInRelative"
                       value: "{{ delay_seconds }}"
             else:
-              # Use pause button if available, otherwise turn off dishwasher
+              # Use stop button if available, otherwise turn off dishwasher
               - if:
                   - condition: template
-                    value_template: "{{ pause_button != none }}"
+                    value_template: "{{ stop_button != none }}"
                 then:
                   - action: button.press
                     target:
-                      entity_id: "{{ pause_button }}"
+                      entity_id: "{{ stop_button }}"
                 else:
                   - action: homeassistant.turn_off
                     target:
