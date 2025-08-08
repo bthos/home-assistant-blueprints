@@ -126,6 +126,26 @@ blueprint:
               value: "dishcare_dishwasher_program_machine_care"
       default: "dishcare_dishwasher_program_auto_2"
 
+    pause_program_button:
+      name: Pause Program Button (Optional)
+      description: >
+        Button entity to pause the dishwasher program instead of turning device off.
+        Use this for dishwashers that support pausing (e.g., button.dishwasher_pause_program)
+      selector:
+        entity:
+          domain: button
+      default:
+
+    program_switch:
+      name: Program Switch (Optional)
+      description: >
+        Switch entity to set the dishwasher program (e.g., switch.dishwasher_program_auto2).
+        Used to select the program before starting or rescheduling.
+      selector:
+        entity:
+          domain: switch
+      default:
+
 trigger:
   - platform: state
     entity_id: !input dishwasher_device
@@ -141,8 +161,19 @@ variables:
   notification_entity: !input notification_device
   use_home_connect: !input use_home_connect
   home_connect_program: !input home_connect_program
+  pause_button: !input pause_program_button
+  program_switch: !input program_switch
 
 action:
+  # Set the program using program switch if configured
+  - if:
+      - condition: template
+        value_template: "{{ program_switch != none }}"
+    then:
+      - action: homeassistant.turn_on
+        target:
+          entity_id: "{{ program_switch }}"
+
   # Clean up any existing scheduled automations for this dishwasher
   - repeat:
       count: "{{ check_hours }}"
@@ -293,10 +324,18 @@ action:
                     - key: "BSH.Common.Option.StartInRelative"
                       value: "{{ delay_seconds }}"
             else:
-              # Turn off dishwasher for manual scheduling
-              - action: homeassistant.turn_off
-                target:
-                  entity_id: "{{ dishwasher }}"
+              # Use pause button if available, otherwise turn off dishwasher
+              - if:
+                  - condition: template
+                    value_template: "{{ pause_button != none }}"
+                then:
+                  - action: button.press
+                    target:
+                      entity_id: "{{ pause_button }}"
+                else:
+                  - action: homeassistant.turn_off
+                    target:
+                      entity_id: "{{ dishwasher }}"
 
           # Send notification about rescheduling
           - if:
@@ -341,6 +380,14 @@ action:
                       value_template: >
                         {{ states(pvpc_sensor) | float(999) <= max_price }}
                   action:
+                    # Set program using program switch if available
+                    - if:
+                        - condition: template
+                          value_template: "{{ program_switch != none }}"
+                      then:
+                        - action: homeassistant.turn_on
+                          target:
+                            entity_id: "{{ program_switch }}"
                     - action: homeassistant.turn_on
                       target:
                         entity_id: "{{ dishwasher }}"
