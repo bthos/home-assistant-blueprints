@@ -3,14 +3,15 @@ blueprint:
   name: Dishwasher PVPC Smart Scheduling
   description: >
     Smart dishwasher scheduling based on PVPC electricity pricing.
-    Automatically checks PVPC electricity prices when dishwasher is turned on.
-    If price is within acceptable range, keeps dishwasher running.
-    If price is too high, turns off dishwasher and schedules it to start
+    Automatically checks PVPC electricity prices when dishwasher power is turned on.
+    If price is within acceptable range and dishwasher is ready, keeps dishwasher running.
+    If price is too high, stops dishwasher and schedules it to start
     during cheaper hours.
 
     **Required Components:**
     - PVPC Hourly Pricing integration
-    - Dishwasher device (switch, smart plug, or Home Connect appliance)
+    - Home Connect dishwasher with power switch (switch.dishwasher_power)
+    - Operation state sensor (sensor.dishwasher_operation_state)
     - sensor.pvpc entity providing current electricity price
 
     **Optional:**
@@ -20,12 +21,13 @@ blueprint:
   author: bthos
 
   input:
-    dishwasher_device:
-      name: Dishwasher Device
+    dishwasher_power:
+      name: Dishwasher Power Switch
       description: >
-        Select your dishwasher device (switch, smart plug, or appliance)
+        Select the dishwasher power switch (switch.dishwasher_power)
       selector:
         entity:
+          domain: switch
           multiple: false
 
     pvpc_sensor:
@@ -138,11 +140,12 @@ blueprint:
 
 trigger:
   - platform: state
-    entity_id: !input dishwasher_device
+    entity_id: !input dishwasher_power
     to: "on"
 
 variables:
-  dishwasher: !input dishwasher_device
+  dishwasher_power: !input dishwasher_power
+  operation_state_sensor: sensor.dishwasher_operation_state
   pvpc_sensor: !input pvpc_sensor
   max_price: !input max_price_threshold
   check_hours: !input check_hours_ahead
@@ -154,16 +157,15 @@ variables:
   stop_button: !input stop_program_button
 
 action:
-  # Set the program using select entities if home_connect_program is configured
+  # Check if dishwasher is ready for operation
+  - condition: template
+    value_template: "{{ states(operation_state_sensor) == 'ready' }}"
+
+  # Set the program using select entity if home_connect_program is configured
   - if:
       - condition: template
         value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
     then:
-      - action: select.select_option
-        target:
-          entity_id: select.dishwasher_selected_program
-        data:
-          option: "{{ home_connect_program }}"
       - action: select.select_option
         target:
           entity_id: select.dishwasher_active_program
@@ -313,7 +315,7 @@ action:
                        max(1) }}
               - action: homeconnect.set_program
                 target:
-                  entity_id: "{{ dishwasher }}"
+                  entity_id: "{{ dishwasher_power }}"
                 data:
                   program: "{{ home_connect_program }}"
                   options:
@@ -329,9 +331,9 @@ action:
                     target:
                       entity_id: "{{ stop_button }}"
                 else:
-                  - action: homeassistant.turn_off
+                  - action: switch.turn_off
                     target:
-                      entity_id: "{{ dishwasher }}"
+                      entity_id: "{{ dishwasher_power }}"
 
           # Send notification about rescheduling
           - if:
@@ -376,24 +378,22 @@ action:
                       value_template: >
                         {{ states(pvpc_sensor) | float(999) <= max_price }}
                   action:
-                    # Set program using select entities if available
+                    # Check if dishwasher is ready before starting
+                    - condition: template
+                      value_template: "{{ states('sensor.dishwasher_operation_state') == 'ready' }}"
+                    # Set program using select entity if available
                     - if:
                         - condition: template
                           value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
                       then:
                         - action: select.select_option
                           target:
-                            entity_id: select.dishwasher_selected_program
-                          data:
-                            option: "{{ home_connect_program }}"
-                        - action: select.select_option
-                          target:
                             entity_id: select.dishwasher_active_program
                           data:
                             option: "{{ home_connect_program }}"
-                    - action: homeassistant.turn_on
+                    - action: switch.turn_on
                       target:
-                        entity_id: "{{ dishwasher }}"
+                        entity_id: "{{ dishwasher_power }}"
                     - if:
                         - condition: template
                           value_template: "{{ notification_entity != none }}"
