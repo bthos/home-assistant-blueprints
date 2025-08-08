@@ -152,25 +152,23 @@ variables:
   use_home_connect: !input use_home_connect
   home_connect_program: !input home_connect_program
   pause_button: !input pause_program_button
-  # Construct program switch entity from home_connect_program value
-  program_switch: >
-    {%- if home_connect_program -%}
-      {%- set program_name = home_connect_program.replace('dishcare_', '') -%}
-      {%- set program_name = program_name | regex_replace('_(\d+)$', '\\1') -%}
-      switch.{{ program_name }}
-    {%- else -%}
-      
-    {%- endif -%}
 
 action:
-  # Set the program using program switch if home_connect_program is configured
+  # Set the program using select entities if home_connect_program is configured
   - if:
       - condition: template
         value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
     then:
-      - action: homeassistant.turn_on
+      - action: select.select_option
         target:
-          entity_id: "{{ program_switch }}"
+          entity_id: select.dishwasher_selected_program
+        data:
+          option: "{{ home_connect_program }}"
+      - action: select.select_option
+        target:
+          entity_id: select.dishwasher_active_program
+        data:
+          option: "{{ home_connect_program }}"
 
   # Clean up any existing scheduled automations for this dishwasher
   - repeat:
@@ -378,14 +376,21 @@ action:
                       value_template: >
                         {{ states(pvpc_sensor) | float(999) <= max_price }}
                   action:
-                    # Set program using program switch if available
+                    # Set program using select entities if available
                     - if:
                         - condition: template
                           value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
                       then:
-                        - action: homeassistant.turn_on
+                        - action: select.select_option
                           target:
-                            entity_id: "{{ program_switch }}"
+                            entity_id: select.dishwasher_selected_program
+                          data:
+                            option: "{{ home_connect_program }}"
+                        - action: select.select_option
+                          target:
+                            entity_id: select.dishwasher_active_program
+                          data:
+                            option: "{{ home_connect_program }}"
                     - action: homeassistant.turn_on
                       target:
                         entity_id: "{{ dishwasher }}"
