@@ -92,13 +92,21 @@ blueprint:
 alias: "RGB Color Cycle"
 sequence:
   - variables:
+      # Resolve blueprint inputs to actual entity IDs
+      color_r_entity: !input color_r_helper
+      color_g_entity: !input color_g_helper  
+      color_b_entity: !input color_b_helper
+      color_phase_entity: !input color_phase_helper
+      color_step_entity: !input color_step_helper
+      step_override: !input step_size_override
+      target_lights_list: !input target_lights
       # Get current RGB values from input helpers
-      current_r: "{{ states(color_r_helper) | int }}"
-      current_g: "{{ states(color_g_helper) | int }}"
-      current_b: "{{ states(color_b_helper) | int }}"
-      current_phase: "{{ states(color_phase_helper) | int }}"
+      current_r: "{{ states(color_r_entity) | int }}"
+      current_g: "{{ states(color_g_entity) | int }}"
+      current_b: "{{ states(color_b_entity) | int }}"
+      current_phase: "{{ states(color_phase_entity) | int }}"
       # Allow step_size to be passed as parameter, fallback to input_helper
-      step_size: "{{ step_size_override if step_size_override else states(color_step_helper) | int }}"
+      step_size: "{{ step_override if step_override else states(color_step_entity) | int }}"
       
   - variables:
       # Calculate next RGB values based on current phase
@@ -159,22 +167,22 @@ sequence:
       
   # Update RGB values in input helpers
   - target:
-      entity_id: "{{ color_r_helper }}"
+      entity_id: "{{ color_r_entity }}"
     data:
       value: "{{ new_r }}"
     action: input_number.set_value
   - target:
-      entity_id: "{{ color_g_helper }}"
+      entity_id: "{{ color_g_entity }}"
     data:
       value: "{{ new_g }}"
     action: input_number.set_value
   - target:
-      entity_id: "{{ color_b_helper }}"
+      entity_id: "{{ color_b_entity }}"
     data:
       value: "{{ new_b }}"
     action: input_number.set_value
   - target:
-      entity_id: "{{ color_phase_helper }}"
+      entity_id: "{{ color_phase_entity }}"
     data:
       value: "{{ new_phase }}"
     action: input_number.set_value
@@ -183,20 +191,20 @@ sequence:
   - if:
       - condition: template
         value_template: >
-          {% for light in target_lights %}
+          {% for light in target_lights_list %}
             {% if states(light) == 'on' %}
               {{ true }}
             {% endif %}
           {% endfor %}
     then:
       - target:
-          entity_id: "{{ target_lights }}"
+          entity_id: !input target_lights
         data:
           rgb_color:
             - "{{ new_r }}"
             - "{{ new_g }}"
             - "{{ new_b }}"
-          transition: "{{ transition_time }}"
+          transition: !input transition_time
         action: light.turn_on
 
 mode: single
