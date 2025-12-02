@@ -1,0 +1,404 @@
+---
+blueprint:
+  name: Dishwasher PVPC Smart Scheduling
+  description: >
+    Smart dishwasher scheduling based on PVPC electricity pricing.
+    Automatically checks PVPC electricity prices when dishwasher power is turned on.
+    If price is within acceptable range and dishwasher is ready, keeps dishwasher running.
+    If price is too high, stops dishwasher and schedules it to start
+    during cheaper hours.
+
+    **Required Components:**
+    - PVPC Hourly Pricing integration
+    - Home Connect dishwasher with power switch (switch.dishwasher_power)
+    - Operation state sensor (sensor.dishwasher_operation_state)
+    - sensor.pvpc entity providing current electricity price
+
+    **Optional:**
+    - Home Connect integration for native delayed start capability
+
+  domain: automation
+  author: bthos
+
+  input:
+    dishwasher_power:
+      name: Dishwasher Power Switch
+      description: >
+        Select the dishwasher power switch (switch.dishwasher_power)
+      selector:
+        entity:
+          domain: switch
+          multiple: false
+
+    pvpc_sensor:
+      name: PVPC Price Sensor
+      description: PVPC sensor entity providing current electricity price
+      selector:
+        entity:
+          domain: sensor
+      default: sensor.pvpc
+
+    max_price_threshold:
+      name: Maximum Price Threshold
+      description: Maximum acceptable electricity price (€/kWh)
+      selector:
+        number:
+          min: 0.05
+          max: 0.50
+          step: 0.01
+          unit_of_measurement: "€/kWh"
+      default: 0.15
+
+    check_hours_ahead:
+      name: Hours to Check Ahead
+      description: How many hours ahead to check for cheaper prices
+      selector:
+        number:
+          min: 1
+          max: 24
+          step: 1
+          unit_of_measurement: hours
+      default: 6
+
+    program_duration:
+      name: Dishwasher Program Duration
+      description: How many hours the dishwasher program runs
+      selector:
+        number:
+          min: 0.5
+          max: 4.0
+          step: 0.5
+          unit_of_measurement: hours
+      default: 2.0
+
+    min_delay_minutes:
+      name: Minimum Delay Before Rescheduling
+      description: Minimum minutes to wait before attempting to reschedule
+      selector:
+        number:
+          min: 5
+          max: 60
+          step: 5
+          unit_of_measurement: minutes
+      default: 30
+
+    notification_device:
+      name: Notification Device (Optional)
+      description: Device to receive notifications about scheduling decisions
+      selector:
+        entity:
+          domain:
+            - notify
+      default:
+
+    dishwasher_active_program:
+      name: Dishwasher Active Program Select
+      description: >
+        Select entity for setting the active dishwasher program
+        (e.g., select.dishwasher_active_program)
+      selector:
+        entity:
+          domain: select
+      default: select.dishwasher_active_program
+
+    home_connect_program:
+      name: Home Connect Program (Optional)
+      description: >
+        Home Connect program to start. Select from available dishwasher programs
+        with temperature and duration information.
+      selector:
+        select:
+          options:
+            - label: "Auto (45-65°C, 1:35h-2:15h)"
+              value: "dishcare_dishwasher_program_auto_2"
+            - label: "Eco (50°C, 4:30h)"
+              value: "dishcare_dishwasher_program_eco_50"
+            - label: "Intensive (70°C, 1:55h-2:15h)"
+              value: "dishcare_dishwasher_program_intensiv_70"
+            - label: "Intensive Power (70°C, 2:15h-2:25h)"
+              value: "dishcare_dishwasher_program_intensiv_power"
+            - label: "Quick (65°C, 1h)"
+              value: "dishcare_dishwasher_program_quick_65"
+            - label: "Quick (45°C, 0:30h)"
+              value: "dishcare_dishwasher_program_quick_45"
+            - label: "Glass (40°C, 1:20h)"
+              value: "dishcare_dishwasher_program_glas_40"
+            - label: "Pre-rinse (cold, 0:10h-0:15h)"
+              value: "dishcare_dishwasher_program_pre_rinse"
+            - label: "Machine Care (70°C, 1h-1:30h)"
+              value: "dishcare_dishwasher_program_machine_care"
+      default: "dishcare_dishwasher_program_auto_2"
+
+    stop_program_button:
+      name: Stop Program Button (Optional)
+      description: >
+        Button entity to stop the dishwasher program instead of turning device off.
+        Use this for dishwashers that support stopping (e.g., button.dishwasher_stop_program)
+      selector:
+        entity:
+          domain: button
+      default:
+
+trigger:
+  - platform: state
+    entity_id: !input dishwasher_power
+    to: "on"
+
+variables:
+  dishwasher_power: !input dishwasher_power
+  operation_state_sensor: sensor.dishwasher_operation_state
+  pvpc_sensor: !input pvpc_sensor
+  max_price: !input max_price_threshold
+  check_hours: !input check_hours_ahead
+  program_duration: !input program_duration
+  min_delay: !input min_delay_minutes
+  notification_entity: !input notification_device
+  dishwasher_active_program: !input dishwasher_active_program
+  home_connect_program: !input home_connect_program
+  stop_button: !input stop_program_button
+
+action:
+  # Check if dishwasher is ready for operation
+  - condition: template
+    value_template: "{{ states(operation_state_sensor) == 'ready' }}"
+
+  # Set the program using select entity if home_connect_program is configured
+  - if:
+      - condition: template
+        value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
+    then:
+      - action: select.select_option
+        target:
+          entity_id: "{{ dishwasher_active_program }}"
+        data:
+          option: "{{ home_connect_program }}"
+
+  # Clean up any existing scheduled automations for this dishwasher
+  - repeat:
+      count: "{{ check_hours }}"
+      sequence:
+        - action: automation.turn_off
+          target:
+            entity_id: >
+              automation.dishwasher_scheduled_start_{{
+                (now() + timedelta(hours=repeat.index)).strftime(
+                  '%Y%m%d_%H%M') }}
+          continue_on_error: true
+
+  - variables:
+      current_price: "{{ states(pvpc_sensor) | float(0) }}"
+      current_time: "{{ now() }}"
+
+  # Check if current price is acceptable
+  - if:
+      - condition: template
+        value_template: "{{ current_price <= max_price }}"
+    then:
+      # Price is acceptable, keep dishwasher running
+      - if:
+          - condition: template
+            value_template: "{{ notification_entity != none }}"
+        then:
+          - action: "notify.{{ notification_entity.split('.')[1] }}"
+            data:
+              title: "Dishwasher Started"
+              message: >
+                Dishwasher started at acceptable price:
+                {{ current_price }}€/kWh (threshold: {{ max_price }}€/kWh)
+    else:
+      # Price is too high, need to reschedule
+      - variables:
+          # Get PVPC price data from individual hourly attributes
+          hourly_prices: >
+            {%- set ns = namespace(prices={}) -%}
+            {%- for hour in range(24) -%}
+              {%- set hour_str = '%02d' | format(hour) -%}
+              {%- set price_attr = 'price_' + hour_str + 'h' -%}
+              {%- set price = state_attr(pvpc_sensor, price_attr) |
+                  float(999) -%}
+              {%- if price != 999 -%}
+                {%- set ns.prices = dict(ns.prices, **{hour_str: price}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {{ ns.prices }}
+
+      - variables:
+          # Find cheapest consecutive hours for dishwasher program
+          optimal_slot: >
+            {%- set current_time = now() -%}
+            {%- set current_hour = current_time.hour -%}
+            {%- set duration_hours = program_duration | float -%}
+            {%- set duration_slots = duration_hours | round(0, 'ceil') | int -%}
+            {%- set ns = namespace(best_slot=none, best_avg=999.0) -%}
+
+            {%- if hourly_prices | length >= duration_slots -%}
+              {%- for hour_24 in range(24) -%}
+                {%- set hour_str = '%02d' | format(hour_24) -%}
+
+                {%- if hour_str in hourly_prices -%}
+                  {%- set slot_ns = namespace(prices=[], hours=[],
+                                              valid=true) -%}
+
+                  {%- for i in range(duration_slots) -%}
+                    {%- if slot_ns.valid -%}
+                      {%- set check_hour = (hour_24 + i) % 24 -%}
+                      {%- set check_hour_str = '%02d' | format(check_hour) -%}
+                      {%- if check_hour_str in hourly_prices -%}
+                        {%- set slot_ns.prices = slot_ns.prices +
+                                [hourly_prices[check_hour_str]] -%}
+                        {%- set slot_ns.hours = slot_ns.hours +
+                                [check_hour] -%}
+                      {%- else -%}
+                        {%- set slot_ns.valid = false -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+
+                  {%- if slot_ns.valid and
+                         slot_ns.prices | length == duration_slots -%}
+                    {%- set avg_price = (slot_ns.prices | sum) /
+                                        (slot_ns.prices | length) -%}
+                    {%- if avg_price <= max_price -%}
+                      {%- set start_time = current_time.replace(
+                              hour=hour_24, minute=0, second=0,
+                              microsecond=0) -%}
+                      {%- if start_time <= current_time -%}
+                        {%- set start_time = start_time +
+                                timedelta(days=1) -%}
+                      {%- endif -%}
+                      {%- set end_time = start_time +
+                              timedelta(hours=duration_hours) -%}
+                      {%- set max_delay_hours = ((start_time -
+                              current_time).total_seconds() / 3600) -%}
+
+                      {# Only consider slots within the check-ahead window #}
+                      {%- if max_delay_hours <= check_hours and
+                             avg_price < ns.best_avg -%}
+                        {%- set ns.best_avg = avg_price -%}
+                        {%- set ns.best_slot = {
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'avg_price': avg_price,
+                            'max_price': slot_ns.prices | max,
+                            'prices': slot_ns.prices,
+                            'hours': slot_ns.hours,
+                            'delay_hours': max_delay_hours
+                          } -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+
+            {{ ns.best_slot }}
+
+      - if:
+          - condition: template
+            value_template: "{{ optimal_slot != none }}"
+        then:
+          # Found optimal consecutive time slot, schedule dishwasher
+          - variables:
+              scheduled_time: "{{ optimal_slot.start_time }}"
+              scheduled_end: "{{ optimal_slot.end_time }}"
+              avg_price: "{{ optimal_slot.avg_price }}"
+              max_slot_price: "{{ optimal_slot.max_price }}"
+
+          # Use stop button if available, otherwise turn off dishwasher
+          - if:
+              - condition: template
+                value_template: "{{ stop_button != none }}"
+            then:
+              - action: button.press
+                target:
+                  entity_id: "{{ stop_button }}"
+            else:
+              - action: switch.turn_off
+                target:
+                  entity_id: "{{ dishwasher_power }}"
+
+          # Send notification about rescheduling
+          - if:
+              - condition: template
+                value_template: "{{ notification_entity != none }}"
+            then:
+              - action: "notify.{{ notification_entity.split('.')[1] }}"
+                data:
+                  title: "Dishwasher Rescheduled"
+                  message: >
+                    Current price too high: {{ current_price }}€/kWh
+                    Rescheduled for {{ scheduled_time.strftime('%H:%M') }}
+                    ({{ program_duration }}h program)
+                    Average price: {{ avg_price | round(3) }}€/kWh
+                    Max price: {{ max_slot_price | round(3) }}€/kWh
+
+          # Wait minimum delay before creating schedule
+          - delay:
+              minutes: "{{ min_delay }}"
+
+          # Create automation to turn on dishwasher at scheduled time
+          - action: automation.create
+            data:
+                  automation_id: >
+                    dishwasher_scheduled_start_{{
+                      scheduled_time.strftime('%Y%m%d_%H%M') }}
+                  trigger:
+                    - platform: time
+                      at: "{{ scheduled_time.strftime('%H:%M') }}"
+                  condition:
+                    - condition: template
+                      value_template: >
+                        {{ states(pvpc_sensor) | float(999) <= max_price }}
+                  action:
+                    # Check if dishwasher is ready before starting
+                    - condition: template
+                      value_template: "{{ states('sensor.dishwasher_operation_state') == 'ready' }}"
+                    # Set program using select entity if available
+                    - if:
+                        - condition: template
+                          value_template: "{{ home_connect_program != none and home_connect_program != '' }}"
+                      then:
+                        - action: select.select_option
+                          target:
+                            entity_id: "{{ dishwasher_active_program }}"
+                          data:
+                            option: "{{ home_connect_program }}"
+                    - action: switch.turn_on
+                      target:
+                        entity_id: "{{ dishwasher_power }}"
+                    - if:
+                        - condition: template
+                          value_template: "{{ notification_entity != none }}"
+                      then:
+                        - action: >
+                            notify.{{
+                              notification_entity.split('.')[1] }}
+                          data:
+                            title: "Dishwasher Started (Scheduled)"
+                            message: >
+                              Dishwasher started as scheduled
+                              Average price: {{ avg_price | round(3) }}€/kWh
+                    # Clean up this automation after running
+                    - action: automation.turn_off
+                      target:
+                        entity_id: >
+                          automation.dishwasher_scheduled_start_{{
+                            scheduled_time.strftime('%Y%m%d_%H%M') }}
+
+        else:
+          # No optimal consecutive time slot found
+          - if:
+              - condition: template
+                value_template: "{{ notification_entity != none }}"
+            then:
+              - action: "notify.{{ notification_entity.split('.')[1] }}"
+                data:
+                  title: "Dishwasher: No Optimal Schedule Found"
+                  message: >
+                    Current price: {{ current_price }}€/kWh (too high)
+                    No {{ program_duration }}h slot found under
+                    {{ max_price }}€/kWh in next {{ check_hours }} hours.
+                    Dishwasher will run now despite high price.
+
+mode: single
+max_exceeded: silent
