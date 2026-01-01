@@ -4,6 +4,8 @@ blueprint:
   description: |
     Generalized occupancy-based lighting control with multiple conditions and time restrictions.
 
+    **Version:** 1.0.0
+
     ---
 
     ## Features

@@ -4,6 +4,8 @@ blueprint:
   description: |
     Advanced lighting control using a state machine with multiple device groups.
 
+    **Version:** 1.0.0
+
     ---
 
     ## Features
