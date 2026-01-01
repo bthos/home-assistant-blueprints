@@ -375,10 +375,8 @@ action:
                         - service: light.turn_on
                           target:
                             entity_id: "{{ repeat.item }}"
-                          {% if transition_seconds > 0 %}
                           data:
                             transition: "{{ transition_seconds }}"
-                          {% endif %}
                     - conditions:
                         - condition: template
                           value_template: "{{ 'switch' in repeat.item }}"
@@ -411,7 +409,6 @@ action:
                 {{ all_off }}
               {% endif %}
         sequence:
-          {% if turn_off_delay_minutes > 0 %}
           - delay:
               minutes: "{{ turn_off_delay_minutes }}"
           - condition: template
@@ -433,7 +430,6 @@ action:
                 {% endfor %}
                 {{ all_off }}
               {% endif %}
-          {% endif %}
           - repeat:
               for_each: !input target_devices
               sequence:
@@ -455,4 +451,3 @@ action:
 
 mode: single
 max_exceeded: silent
-
