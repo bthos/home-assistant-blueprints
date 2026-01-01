@@ -4,7 +4,7 @@ blueprint:
   description: |
     Generalized occupancy-based lighting control with multiple conditions and time restrictions.
 
-    **Version:** 1.0.4
+    **Version:** 1.0.5
 
     ---
 
@@ -225,16 +225,6 @@ trigger:
     to: "off"
     id: occupancy_off
 
-  - platform: sun
-    event: sunset
-    offset: "-00:00:02"
-    id: sunset_time
-
-  - platform: sun
-    event: sunrise
-    offset: "00:00:02"
-    id: sunrise_time
-
 variables:
   occupancy_sensors_list: !input occupancy_sensors
   occupancy_logic_type: !input occupancy_logic
@@ -251,120 +241,51 @@ variables:
   night_end: !input night_period_end
 
 condition:
-  # Time restriction check (if enabled) - skip for sunrise trigger and turn-off
   - condition: or
     conditions:
-      - condition: trigger
-        id: sunrise_time
-      - condition: template
-        value_template: "{{ time_restriction_type == 'none' }}"
-      - condition: and
-        conditions:
-          - condition: template
-            value_template: "{{ time_restriction_type == 'night_only' }}"
-          - condition: sun
-            after: sunset
-            before: sunrise
-      - condition: and
-        conditions:
-          - condition: template
-            value_template: "{{ time_restriction_type == 'day_only' }}"
-          - condition: sun
-            after: sunrise
-            before: sunset
-      # Allow turn-off regardless of time restriction
+      # Always allow turn-off regardless of time restriction
       - condition: trigger
         id: occupancy_off
 
-  - condition: or
-    conditions:
-      # Occupancy ON trigger - check additional conditions (illuminance)
+      # Occupancy ON - check time restrictions and illuminance
       - condition: and
         conditions:
           - condition: trigger
             id: occupancy_on
+          # Time restriction check
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ time_restriction_type == 'none' }}"
+              - condition: and
+                conditions:
+                  - condition: template
+                    value_template: "{{ time_restriction_type == 'night_only' }}"
+                  - condition: sun
+                    after: sunset
+                    before: sunrise
+              - condition: and
+                conditions:
+                  - condition: template
+                    value_template: "{{ time_restriction_type == 'day_only' }}"
+                  - condition: sun
+                    after: sunrise
+                    before: sunset
+          # Illuminance check (if configured)
           - condition: template
             value_template: >-
-              {% set all_conditions_met = true %}
-              
-              {# Check illuminance if configured #}
               {% if illuminance_sensor_entity and illuminance_sensor_entity != '' %}
-                {% if (states(illuminance_sensor_entity) | float(9999)) >= illuminance_threshold_value %}
-                  {% set all_conditions_met = false %}
-                {% endif %}
-              {% endif %}
-              
-              {{ all_conditions_met }}
-
-      # Occupancy OFF trigger - always allow
-      - condition: trigger
-        id: occupancy_off
-
-      # Sunset trigger - check if occupancy is active and night_only restriction
-      - condition: and
-        conditions:
-          - condition: trigger
-            id: sunset_time
-          - condition: template
-            value_template: "{{ time_restriction_type == 'night_only' }}"
-          - condition: template
-            value_template: >-
-              {% if occupancy_logic_type == 'and' %}
-                {% set all_on = true %}
-                {% for sensor in occupancy_sensors_list %}
-                  {% if states(sensor) != 'on' %}
-                    {% set all_on = false %}
-                  {% endif %}
-                {% endfor %}
-                {{ all_on }}
+                {{ (states(illuminance_sensor_entity) | float(9999)) < illuminance_threshold_value }}
               {% else %}
-                {% set any_on = false %}
-                {% for sensor in occupancy_sensors_list %}
-                  {% if states(sensor) == 'on' %}
-                    {% set any_on = true %}
-                  {% endif %}
-                {% endfor %}
-                {{ any_on }}
+                true
               {% endif %}
-
-      # Sunrise trigger - always allow to turn off
-      - condition: trigger
-        id: sunrise_time
 
 action:
   - choose:
-      # Turn off on sunrise if night_only restriction
+      # Turn on when occupancy detected
       - conditions:
           - condition: trigger
-            id: sunrise_time
-        sequence:
-          - repeat:
-              for_each: !input target_devices
-              sequence:
-                - choose:
-                    - conditions:
-                        - condition: template
-                          value_template: "{{ 'light' in repeat.item }}"
-                      sequence:
-                        - service: light.turn_off
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - conditions:
-                        - condition: template
-                          value_template: "{{ 'switch' in repeat.item }}"
-                      sequence:
-                        - service: switch.turn_off
-                          target:
-                            entity_id: "{{ repeat.item }}"
-
-      # Turn on when occupancy detected or at sunset (if already occupied)
-      - conditions:
-          - condition: or
-            conditions:
-              - condition: trigger
-                id: occupancy_on
-              - condition: trigger
-                id: sunset_time
+            id: occupancy_on
         sequence:
           - variables:
               # Calculate brightness based on adaptive brightness settings
