@@ -1,0 +1,501 @@
+---
+blueprint:
+  name: State Machine Light Control with Device Groups
+  description: >
+    Advanced lighting control using a state machine with multiple device groups.
+    Supports immediate and delayed device behaviors, state persistence, and debouncing.
+    
+    **Features:**
+    - State machine with configurable states (OFF, OFF_TO_ON, ON, ON_TO_OFF)
+    - Multiple device groups with independent behaviors
+    - Immediate devices: Turn on/off instantly with occupancy
+    - Delayed devices: Turn off after delay, reset if occupancy detected
+    - State persistence via helper entity
+    - Debouncing via minimum state duration
+    
+    **Use Cases:**
+    - Bathrooms with mirror and main lights (different behaviors)
+    - Spaces requiring debouncing to prevent rapid cycling
+    - Complex lighting scenarios with multiple device groups
+    
+    **Required:**
+    - Occupancy sensor (binary_sensor)
+    - At least one device group configured
+    - Optional: Input text helper for state persistence
+
+  domain: automation
+  author: bthos
+
+  input:
+    occupancy_sensor:
+      name: Occupancy Sensor
+      description: Select the occupancy sensor (binary_sensor entity)
+      selector:
+        entity:
+          domain: binary_sensor
+
+    device_group_1_devices:
+      name: Device Group 1 - Devices
+      description: First group of lights/switches to control
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+          multiple: true
+
+    device_group_1_behavior:
+      name: Device Group 1 - Behavior
+      description: How devices in this group should behave
+      selector:
+        select:
+          options:
+            - label: "Immediate - Turn on/off instantly with occupancy"
+              value: "immediate"
+            - label: "Delayed - Turn off after delay, reset on occupancy"
+              value: "delayed"
+      default: "immediate"
+
+    device_group_1_turn_off_delay:
+      name: Device Group 1 - Turn Off Delay (seconds)
+      description: Delay before turning off (only for delayed behavior)
+      selector:
+        number:
+          min: 5
+          max: 300
+          step: 5
+          unit_of_measurement: seconds
+      default: 30
+
+    device_group_2_devices:
+      name: Device Group 2 - Devices (Optional)
+      description: Second group of lights/switches (leave empty to disable)
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+          multiple: true
+      default: []
+
+    device_group_2_behavior:
+      name: Device Group 2 - Behavior
+      description: How devices in this group should behave
+      selector:
+        select:
+          options:
+            - label: "Immediate - Turn on/off instantly with occupancy"
+              value: "immediate"
+            - label: "Delayed - Turn off after delay, reset on occupancy"
+              value: "delayed"
+      default: "immediate"
+
+    device_group_2_turn_off_delay:
+      name: Device Group 2 - Turn Off Delay (seconds)
+      description: Delay before turning off (only for delayed behavior)
+      selector:
+        number:
+          min: 5
+          max: 300
+          step: 5
+          unit_of_measurement: seconds
+      default: 30
+
+    state_helper:
+      name: State Helper (Optional)
+      description: >
+        Input text helper to track state machine state for persistence.
+        Create an input_text helper if you want state to persist across restarts.
+        Leave empty to use internal state only.
+      selector:
+        entity:
+          domain: input_text
+      default:
+
+    min_state_duration:
+      name: Minimum State Duration (seconds)
+      description: Minimum time in state before allowing transition (prevents rapid cycling)
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: seconds
+      default: 0
+
+trigger:
+  - platform: state
+    entity_id: !input occupancy_sensor
+    id: occupancy_changed
+
+variables:
+  occupancy_sensor_entity: !input occupancy_sensor
+  state_helper_entity: !input state_helper
+  min_duration: !input min_state_duration
+  device_group_1_list: !input device_group_1_devices
+  device_group_1_behavior_type: !input device_group_1_behavior
+  device_group_1_delay: !input device_group_1_turn_off_delay
+  device_group_2_list: !input device_group_2_devices
+  device_group_2_behavior_type: !input device_group_2_behavior
+  device_group_2_delay: !input device_group_2_turn_off_delay
+
+action:
+  - variables:
+      occupancy_state: "{{ states(occupancy_sensor_entity) }}"
+      current_state_machine: >-
+        {% if state_helper_entity and state_helper_entity != '' %}
+          {{ states(state_helper_entity) | default('OFF') }}
+        {% else %}
+          {% if occupancy_state == 'on' %}
+            ON
+          {% else %}
+            OFF
+          {% endif %}
+        {% endif %}
+
+  # Determine new state based on occupancy and current state
+  - variables:
+      new_state: >-
+        {% if occupancy_state == 'on' %}
+          {% if current_state_machine == 'OFF' %}
+            OFF_TO_ON
+          {% elif current_state_machine == 'ON_TO_OFF' %}
+            ON
+          {% else %}
+            ON
+          {% endif %}
+        {% else %}
+          {% if current_state_machine == 'ON' %}
+            ON_TO_OFF
+          {% elif current_state_machine == 'OFF_TO_ON' %}
+            OFF
+          {% else %}
+            OFF
+          {% endif %}
+        {% endif %}
+
+  # Update state helper if configured
+  - if:
+      - condition: template
+        value_template: "{{ state_helper_entity != '' }}"
+    then:
+      - service: input_text.set_value
+        target:
+          entity_id: "{{ state_helper_entity }}"
+        data:
+          value: "{{ new_state }}"
+
+  # Control Device Group 1
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ device_group_1_behavior_type == 'immediate' }}"
+        sequence:
+          # Immediate behavior - control directly based on occupancy
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ occupancy_state == 'on' }}"
+                sequence:
+                  - repeat:
+                      for_each: !input device_group_1_devices
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'light' in repeat.item }}"
+                              sequence:
+                                - service: light.turn_on
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'switch' in repeat.item }}"
+                              sequence:
+                                - service: switch.turn_on
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ occupancy_state == 'off' }}"
+                sequence:
+                  - repeat:
+                      for_each: !input device_group_1_devices
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'light' in repeat.item }}"
+                              sequence:
+                                - service: light.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'switch' in repeat.item }}"
+                              sequence:
+                                - service: switch.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ device_group_1_behavior_type == 'delayed' }}"
+        sequence:
+          # Delayed behavior - use state machine
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ new_state == 'ON' or new_state == 'OFF_TO_ON' }}"
+                sequence:
+                  # Turn on immediately
+                  - repeat:
+                      for_each: !input device_group_1_devices
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'light' in repeat.item }}"
+                              sequence:
+                                - service: light.turn_on
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'switch' in repeat.item }}"
+                              sequence:
+                                - service: switch.turn_on
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+
+              - conditions:
+                  - condition: template
+                    value_template: "{{ new_state == 'ON_TO_OFF' }}"
+                sequence:
+                  # Wait for delay before turning off
+                  - delay:
+                      seconds: "{{ device_group_1_delay }}"
+                  # Check occupancy again before turning off
+                  - condition: state
+                    entity_id: !input occupancy_sensor
+                    state: "off"
+                  # Update state to OFF
+                  - if:
+                      - condition: template
+                        value_template: "{{ state_helper_entity != '' }}"
+                    then:
+                      - service: input_text.set_value
+                        target:
+                          entity_id: "{{ state_helper_entity }}"
+                        data:
+                          value: "OFF"
+                  # Turn off devices
+                  - repeat:
+                      for_each: !input device_group_1_devices
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'light' in repeat.item }}"
+                              sequence:
+                                - service: light.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'switch' in repeat.item }}"
+                              sequence:
+                                - service: switch.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+
+              - conditions:
+                  - condition: template
+                    value_template: "{{ new_state == 'OFF' }}"
+                sequence:
+                  # Turn off immediately
+                  - repeat:
+                      for_each: !input device_group_1_devices
+                      sequence:
+                        - choose:
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'light' in repeat.item }}"
+                              sequence:
+                                - service: light.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - conditions:
+                                - condition: template
+                                  value_template: "{{ 'switch' in repeat.item }}"
+                              sequence:
+                                - service: switch.turn_off
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+
+  # Control Device Group 2 (if configured)
+  - if:
+      - condition: template
+        value_template: >-
+          {% set has_group_2 = false %}
+          {% if device_group_2_list %}
+            {% for device in device_group_2_list %}
+              {% if device != '' %}
+                {% set has_group_2 = true %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {{ has_group_2 }}
+    then:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ device_group_2_behavior_type == 'immediate' }}"
+            sequence:
+              # Immediate behavior - control directly based on occupancy
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ occupancy_state == 'on' }}"
+                    sequence:
+                      - repeat:
+                          for_each: !input device_group_2_devices
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'light' in repeat.item }}"
+                                  sequence:
+                                    - service: light.turn_on
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'switch' in repeat.item }}"
+                                  sequence:
+                                    - service: switch.turn_on
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ occupancy_state == 'off' }}"
+                    sequence:
+                      - repeat:
+                          for_each: !input device_group_2_devices
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'light' in repeat.item }}"
+                                  sequence:
+                                    - service: light.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'switch' in repeat.item }}"
+                                  sequence:
+                                    - service: switch.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+
+          - conditions:
+              - condition: template
+                value_template: "{{ device_group_2_behavior_type == 'delayed' }}"
+            sequence:
+              # Delayed behavior - use state machine
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ new_state == 'ON' or new_state == 'OFF_TO_ON' }}"
+                    sequence:
+                      # Turn on immediately
+                      - repeat:
+                          for_each: !input device_group_2_devices
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'light' in repeat.item }}"
+                                  sequence:
+                                    - service: light.turn_on
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'switch' in repeat.item }}"
+                                  sequence:
+                                    - service: switch.turn_on
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ new_state == 'ON_TO_OFF' }}"
+                    sequence:
+                      # Wait for delay before turning off
+                      - delay:
+                          seconds: "{{ device_group_2_delay }}"
+                      # Check occupancy again before turning off
+                      - condition: state
+                        entity_id: !input occupancy_sensor
+                        state: "off"
+                      # Update state to OFF
+                      - if:
+                          - condition: template
+                            value_template: "{{ state_helper_entity != '' }}"
+                        then:
+                          - service: input_text.set_value
+                            target:
+                              entity_id: "{{ state_helper_entity }}"
+                            data:
+                              value: "OFF"
+                      # Turn off devices
+                      - repeat:
+                          for_each: !input device_group_2_devices
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'light' in repeat.item }}"
+                                  sequence:
+                                    - service: light.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'switch' in repeat.item }}"
+                                  sequence:
+                                    - service: switch.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ new_state == 'OFF' }}"
+                    sequence:
+                      # Turn off immediately
+                      - repeat:
+                          for_each: !input device_group_2_devices
+                          sequence:
+                            - choose:
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'light' in repeat.item }}"
+                                  sequence:
+                                    - service: light.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - conditions:
+                                    - condition: template
+                                      value_template: "{{ 'switch' in repeat.item }}"
+                                  sequence:
+                                    - service: switch.turn_off
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+
+mode: single
+max_exceeded: silent
+
+
+

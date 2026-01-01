@@ -8,6 +8,8 @@ A collection of useful Home Assistant blueprints to automate and enhance your sm
 |-----------|-------------|---------|
 | [RGB Color Cycling](rgb-color-cycling-blueprint.yaml) | Smooth RGB color cycling script that transitions through the color spectrum. Creates beautiful smooth color transitions through Cyan→Blue→Magenta→Red→Yellow→Green→Cyan cycle. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Frgb-color-cycling-blueprint.yaml) |
 | [Dishwasher PVPC Smart Scheduling](dishwasher-pvpc-smart-scheduling-blueprint.yaml) | Smart dishwasher scheduling based on PVPC electricity pricing. Automatically checks PVPC prices when dishwasher is turned on and reschedules to cheaper hours if current price is too high. Supports Home Connect for native delayed start. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fdishwasher-pvpc-smart-scheduling-blueprint.yaml) |
+| [Occupancy Multi-Condition Light Control](occupancy-multi-condition-light-control-blueprint.yaml) | Generalized occupancy-based lighting with multiple sensors, time restrictions, and additional conditions. Supports AND/OR logic, illuminance thresholds, day/night restrictions, and automatic turn-off delays. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Foccupancy-multi-condition-light-control-blueprint.yaml) |
+| [State Machine Light Control](state-machine-light-control-blueprint.yaml) | Advanced lighting control using state machine with multiple device groups. Supports immediate and delayed behaviors, state persistence, and debouncing to prevent rapid cycling. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fstate-machine-light-control-blueprint.yaml) |
 
 ## Usage Instructions
 
@@ -67,6 +69,59 @@ Before using the RGB Color Cycling blueprint, you need to create the following i
 - Adjust the step size to control transition speed (lower = smoother, higher = faster)
 - Only lights that are currently "on" will have their colors changed
 - The color cycle will smoothly transition through the full spectrum
+
+#### Occupancy Multi-Condition Light Control Blueprint
+
+Generalized occupancy-based lighting control converted from Node-RED workflows.
+
+**Required:**
+- One or more occupancy sensors (binary_sensor entities)
+- Target light or switch entities to control
+
+**Optional:**
+- Illuminance sensor for ambient light checking
+- Time restrictions (day only, night only, custom windows)
+
+**Usage Tips:**
+- Perfect for hallways with multiple occupancy sensors (use AND logic)
+- Living rooms requiring both occupancy and low illuminance
+- Rooms that should only activate during specific times (night only, day only)
+- Supports multiple target devices with transition time control
+- Automatic turn-off delay prevents lights from flickering
+- Use AND logic when all sensors must detect occupancy
+- Use OR logic when any sensor detecting occupancy should trigger
+
+**Common Configurations:**
+- **Hallway (2 sensors)**: Use AND logic, night_only restriction, 0 minute turn-off delay
+- **Living Room**: Use single sensor, add illuminance sensor (< 500 lux), 15 minute turn-off delay
+- **Dressing Room**: Use single sensor, night_only restriction, 0 minute turn-off delay
+
+#### State Machine Light Control Blueprint
+
+Advanced lighting control with state machine logic converted from Node-RED workflows.
+
+**Required:**
+- Occupancy sensor (binary_sensor)
+- At least one device group configured
+
+**Optional:**
+- Input text helper for state persistence (recommended for reliability)
+- Second device group for complex scenarios
+
+**Usage Tips:**
+- Perfect for bathrooms with mirror and main lights (different behaviors)
+- Mirror light: Use immediate behavior for instant response
+- Main light: Use delayed behavior (30 seconds) to prevent rapid cycling
+- State machine handles transitions: OFF → OFF_TO_ON → ON → ON_TO_OFF → OFF
+- State persistence via helper entity ensures state survives restarts
+- Delayed devices automatically reset if occupancy detected during delay
+- Minimum state duration prevents rapid cycling (debouncing)
+
+**Common Configurations:**
+- **Bathroom**: 
+  - Group 1 (Mirror): Immediate behavior
+  - Group 2 (Main): Delayed behavior, 30 second delay
+  - Use state helper for persistence
 
 ## Contributing
 

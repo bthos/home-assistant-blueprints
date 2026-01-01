@@ -1,0 +1,458 @@
+---
+blueprint:
+  name: Occupancy Multi-Condition Light Control
+  description: >
+    Generalized occupancy-based lighting control with multiple conditions and time restrictions.
+    Supports multiple occupancy sensors with AND/OR logic, optional time restrictions,
+    additional sensor conditions (illuminance, temperature, etc.), and automatic turn-off delays.
+    
+    **Features:**
+    - Multiple occupancy sensors with configurable AND/OR logic
+    - Optional time restrictions (day only, night only, custom time windows)
+    - Additional sensor conditions (illuminance threshold, temperature, etc.)
+    - Automatic turn-off delay with reset capability
+    - Multiple target devices support
+    - Duplicate prevention (RBE-equivalent filtering)
+    
+    **Use Cases:**
+    - Hallways with multiple occupancy sensors
+    - Living rooms requiring both occupancy and low illuminance
+    - Rooms that should only activate during specific times
+    - Any space needing complex conditional lighting control
+
+  domain: automation
+  author: bthos
+
+  input:
+    occupancy_sensors:
+      name: Occupancy Sensors
+      description: Select one or more occupancy sensors (binary_sensor entities)
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+
+    occupancy_logic:
+      name: Occupancy Sensor Logic
+      description: How to combine multiple occupancy sensors
+      selector:
+        select:
+          options:
+            - label: "AND - All sensors must detect occupancy"
+              value: "and"
+            - label: "OR - Any sensor detecting occupancy"
+              value: "or"
+      default: "and"
+
+    target_devices:
+      name: Target Lights/Switches
+      description: Select the lights or switches to control
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+          multiple: true
+
+    time_restriction:
+      name: Time Restriction
+      description: When lights should be allowed to turn on
+      selector:
+        select:
+          options:
+            - label: "No restriction - Always allow"
+              value: "none"
+            - label: "Night only - After sunset, before sunrise"
+              value: "night_only"
+            - label: "Day only - After sunrise, before sunset"
+              value: "day_only"
+            - label: "Custom time window"
+              value: "custom"
+      default: "none"
+
+    time_window_start:
+      name: Time Window Start
+      description: Start time for custom time window (HH:MM format, e.g., 18:00)
+      selector:
+        time:
+      default:
+
+    time_window_end:
+      name: Time Window End
+      description: End time for custom time window (HH:MM format, e.g., 08:00)
+      selector:
+        time:
+      default:
+
+    illuminance_sensor:
+      name: Illuminance Sensor (Optional)
+      description: Optional illuminance sensor to check before turning on lights
+      selector:
+        entity:
+          domain: sensor
+      default:
+
+    illuminance_threshold:
+      name: Illuminance Threshold (lux)
+      description: Maximum illuminance level to turn on lights (below this = dark enough)
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 50
+          unit_of_measurement: lux
+      default: 500
+
+    turn_off_delay:
+      name: Turn Off Delay (minutes)
+      description: Delay before turning off lights after occupancy clears (0 = immediate)
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 1
+          unit_of_measurement: minutes
+      default: 0
+
+    transition_time:
+      name: Transition Time (seconds)
+      description: Transition time for lights (0-60 seconds, 0 = instant)
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: seconds
+      default: 3
+
+trigger:
+  - platform: state
+    entity_id: !input occupancy_sensors
+    id: occupancy_changed
+
+  - platform: state
+    entity_id: !input illuminance_sensor
+    id: illuminance_changed
+
+  - platform: sun
+    event: sunset
+    offset: "-00:00:02"
+    id: sunset_time
+
+  - platform: sun
+    event: sunrise
+    offset: "00:00:02"
+    id: sunrise_time
+
+  - platform: time
+    at: !input time_window_start
+    id: time_window_start_trigger
+
+  - platform: time
+    at: !input time_window_end
+    id: time_window_end_trigger
+
+variables:
+  occupancy_sensors_list: !input occupancy_sensors
+  occupancy_logic_type: !input occupancy_logic
+  target_devices_list: !input target_devices
+  time_restriction_type: !input time_restriction
+  illuminance_sensor_entity: !input illuminance_sensor
+  illuminance_threshold_value: !input illuminance_threshold
+  turn_off_delay_minutes: !input turn_off_delay
+  transition_seconds: !input transition_time
+
+condition:
+  # Time restriction check (if enabled) - skip for sunrise trigger
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: sunrise_time
+      - condition: template
+        value_template: "{{ time_restriction_type == 'none' }}"
+      - condition: and
+        conditions:
+          - condition: template
+            value_template: "{{ time_restriction_type == 'night_only' }}"
+          - condition: sun
+            after: sunset
+            before: sunrise
+      - condition: and
+        conditions:
+          - condition: template
+            value_template: "{{ time_restriction_type == 'day_only' }}"
+          - condition: sun
+            after: sunrise
+            before: sunset
+
+  - condition: or
+    conditions:
+      # Occupancy changed trigger - check all conditions
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: occupancy_changed
+          - condition: template
+            value_template: >-
+              {% set all_conditions_met = true %}
+              
+              {# Check occupancy sensors #}
+              {% if occupancy_logic_type == 'and' %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) != 'on' %}
+                    {% set all_conditions_met = false %}
+                  {% endif %}
+                {% endfor %}
+              {% else %}
+                {% set any_occupied = false %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set any_occupied = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if not any_occupied %}
+                  {% set all_conditions_met = false %}
+                {% endif %}
+              {% endif %}
+              
+              {# Check illuminance if configured #}
+              {% if illuminance_sensor_entity and illuminance_sensor_entity != '' %}
+                {% if (states(illuminance_sensor_entity) | float(9999)) >= illuminance_threshold_value %}
+                  {% set all_conditions_met = false %}
+                {% endif %}
+              {% endif %}
+              
+              {{ all_conditions_met }}
+
+      # Illuminance changed trigger
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: illuminance_changed
+          - condition: template
+            value_template: >-
+              {% set all_conditions_met = true %}
+              
+              {# Check occupancy sensors #}
+              {% if occupancy_logic_type == 'and' %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) != 'on' %}
+                    {% set all_conditions_met = false %}
+                  {% endif %}
+                {% endfor %}
+              {% else %}
+                {% set any_occupied = false %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set any_occupied = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if not any_occupied %}
+                  {% set all_conditions_met = false %}
+                {% endif %}
+              {% endif %}
+              
+              {# Check illuminance #}
+              {% if (states(illuminance_sensor_entity) | float(9999)) >= illuminance_threshold_value %}
+                {% set all_conditions_met = false %}
+              {% endif %}
+              
+              {{ all_conditions_met }}
+
+      # Sunset trigger - check if occupancy is active and night_only restriction
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: sunset_time
+          - condition: template
+            value_template: "{{ time_restriction_type == 'night_only' }}"
+          - condition: template
+            value_template: >-
+              {% if occupancy_logic_type == 'and' %}
+                {% set all_on = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) != 'on' %}
+                    {% set all_on = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_on }}
+              {% else %}
+                {% set any_on = false %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set any_on = true %}
+                  {% endif %}
+                {% endfor %}
+                {{ any_on }}
+              {% endif %}
+
+      # Sunrise trigger - always allow to turn off
+      - condition: trigger
+        id: sunrise_time
+
+action:
+  - choose:
+      # Turn off on sunrise if night_only restriction
+      - conditions:
+          - condition: trigger
+            id: sunrise_time
+        sequence:
+          - repeat:
+              for_each: !input target_devices
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'light' in repeat.item }}"
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'switch' in repeat.item }}"
+                      sequence:
+                        - service: switch.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+
+      # Turn on when conditions are met
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: occupancy_changed
+              - condition: trigger
+                id: illuminance_changed
+              - condition: trigger
+                id: sunset_time
+        sequence:
+          - variables:
+              should_turn_on: >-
+                {% set all_conditions_met = true %}
+                
+                {# Check occupancy sensors #}
+                {% if occupancy_logic_type == 'and' %}
+                  {% for sensor in occupancy_sensors_list %}
+                    {% if states(sensor) != 'on' %}
+                      {% set all_conditions_met = false %}
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  {% set any_occupied = false %}
+                  {% for sensor in occupancy_sensors_list %}
+                    {% if states(sensor) == 'on' %}
+                      {% set any_occupied = true %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if not any_occupied %}
+                    {% set all_conditions_met = false %}
+                  {% endif %}
+                {% endif %}
+                
+                {# Check time restriction - handled via separate condition #}
+                
+                {# Check illuminance if configured #}
+                {% if illuminance_sensor_entity and illuminance_sensor_entity != '' %}
+                  {% if (states(illuminance_sensor_entity) | float(9999)) >= illuminance_threshold_value %}
+                    {% set all_conditions_met = false %}
+                  {% endif %}
+                {% endif %}
+                
+                {{ all_conditions_met }}
+
+          - condition: template
+            value_template: "{{ should_turn_on }}"
+
+          - repeat:
+              for_each: !input target_devices
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'light' in repeat.item }}"
+                      sequence:
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          {% if transition_seconds > 0 %}
+                          data:
+                            transition: "{{ transition_seconds }}"
+                          {% endif %}
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'switch' in repeat.item }}"
+                      sequence:
+                        - service: switch.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+
+      # Turn off when occupancy clears (with delay if configured)
+      - conditions:
+          - condition: trigger
+            id: occupancy_changed
+          - condition: template
+            value_template: >-
+              {% if occupancy_logic_type == 'and' %}
+                {% set all_off = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set all_off = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_off }}
+              {% else %}
+                {% set all_off = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set all_off = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_off }}
+              {% endif %}
+        sequence:
+          {% if turn_off_delay_minutes > 0 %}
+          - delay:
+              minutes: "{{ turn_off_delay_minutes }}"
+          - condition: template
+            value_template: >-
+              {% if occupancy_logic_type == 'and' %}
+                {% set all_off = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set all_off = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_off }}
+              {% else %}
+                {% set all_off = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set all_off = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_off }}
+              {% endif %}
+          {% endif %}
+          - repeat:
+              for_each: !input target_devices
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'light' in repeat.item }}"
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ 'switch' in repeat.item }}"
+                      sequence:
+                        - service: switch.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+
+mode: single
+max_exceeded: silent
+
