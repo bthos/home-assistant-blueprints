@@ -13,6 +13,7 @@ blueprint:
     - Automatic turn-off delay with reset capability
     - Multiple target devices support
     - Duplicate prevention (RBE-equivalent filtering)
+    - Adaptive brightness: dim lights at night to protect eyes, full brightness during day
     
     **Use Cases:**
     - Hallways with multiple occupancy sensors
@@ -125,6 +126,55 @@ blueprint:
           unit_of_measurement: seconds
       default: 3
 
+    adaptive_brightness_enabled:
+      name: Adaptive Brightness
+      description: >
+        Enable adaptive brightness to dim lights at night (protects eyes from bright light).
+        Full brightness during day, reduced brightness at night.
+      selector:
+        boolean:
+      default: false
+
+    night_brightness:
+      name: Night Brightness (%)
+      description: Brightness level during nighttime (0-100%)
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+      default: 30
+
+    day_brightness:
+      name: Day Brightness (%)
+      description: Brightness level during daytime (0-100%)
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+      default: 100
+
+    night_period_start:
+      name: Night Period Start
+      description: >
+        When night period starts for adaptive brightness (HH:MM format).
+        Use sunset-based if left empty.
+      selector:
+        time:
+      default:
+
+    night_period_end:
+      name: Night Period End
+      description: >
+        When night period ends for adaptive brightness (HH:MM format).
+        Use sunrise-based if left empty.
+      selector:
+        time:
+      default:
+
 trigger:
   - platform: state
     entity_id: !input occupancy_sensors
@@ -161,6 +211,11 @@ variables:
   illuminance_threshold_value: !input illuminance_threshold
   turn_off_delay_minutes: !input turn_off_delay
   transition_seconds: !input transition_time
+  adaptive_brightness: !input adaptive_brightness_enabled
+  night_brightness_pct: !input night_brightness
+  day_brightness_pct: !input day_brightness
+  night_start: !input night_period_start
+  night_end: !input night_period_end
 
 condition:
   # Time restriction check (if enabled) - skip for sunrise trigger
@@ -364,6 +419,44 @@ action:
           - condition: template
             value_template: "{{ should_turn_on }}"
 
+          - variables:
+              # Calculate brightness based on adaptive brightness settings
+              target_brightness: >-
+                {% if not adaptive_brightness %}
+                  {# Adaptive brightness disabled - use day brightness #}
+                  {{ day_brightness_pct }}
+                {% else %}
+                  {# Check if it's night period #}
+                  {% set is_night = false %}
+                  {% if night_start and night_end %}
+                    {# Use custom night period #}
+                    {% set now_time = now().strftime('%H:%M') %}
+                    {% set start_time = night_start %}
+                    {% set end_time = night_end %}
+                    {% if start_time > end_time %}
+                      {# Night period spans midnight (e.g., 22:00 - 06:00) #}
+                      {% if now_time >= start_time or now_time < end_time %}
+                        {% set is_night = true %}
+                      {% endif %}
+                    {% else %}
+                      {# Night period within same day #}
+                      {% if now_time >= start_time and now_time < end_time %}
+                        {% set is_night = true %}
+                      {% endif %}
+                    {% endif %}
+                  {% else %}
+                    {# Use sun-based night period (after sunset, before sunrise) #}
+                    {% if states('sun.sun') == 'below_horizon' %}
+                      {% set is_night = true %}
+                    {% endif %}
+                  {% endif %}
+                  {% if is_night %}
+                    {{ night_brightness_pct }}
+                  {% else %}
+                    {{ day_brightness_pct }}
+                  {% endif %}
+                {% endif %}
+
           - repeat:
               for_each: !input target_devices
               sequence:
@@ -377,6 +470,7 @@ action:
                             entity_id: "{{ repeat.item }}"
                           data:
                             transition: "{{ transition_seconds }}"
+                            brightness_pct: "{{ target_brightness }}"
                     - conditions:
                         - condition: template
                           value_template: "{{ 'switch' in repeat.item }}"

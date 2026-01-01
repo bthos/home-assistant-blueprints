@@ -81,6 +81,7 @@ Generalized occupancy-based lighting control converted from Node-RED workflows.
 **Optional:**
 - Illuminance sensor for ambient light checking
 - Time restrictions (day only, night only, custom windows)
+- Adaptive brightness settings
 
 **Usage Tips:**
 - Perfect for hallways with multiple occupancy sensors (use AND logic)
@@ -91,10 +92,18 @@ Generalized occupancy-based lighting control converted from Node-RED workflows.
 - Use AND logic when all sensors must detect occupancy
 - Use OR logic when any sensor detecting occupancy should trigger
 
+**Adaptive Brightness Feature:**
+- Protects eyes from bright light at night (occasional activations)
+- Uses dimmed brightness during nighttime (default 30%)
+- Uses full brightness during daytime (default 100%)
+- Night period detection: sun-based (automatic) or custom time window
+- Enable with `Adaptive Brightness` toggle
+
 **Common Configurations:**
 - **Hallway (2 sensors)**: Use AND logic, night_only restriction, 0 minute turn-off delay
 - **Living Room**: Use single sensor, add illuminance sensor (< 500 lux), 15 minute turn-off delay
 - **Dressing Room**: Use single sensor, night_only restriction, 0 minute turn-off delay
+- **Night-friendly**: Enable adaptive brightness, 30% night brightness, sunset-based detection
 
 #### State Machine Light Control Blueprint
 
