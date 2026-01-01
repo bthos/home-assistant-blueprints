@@ -1,27 +1,64 @@
 ---
 blueprint:
   name: State Machine Light Control with Device Groups
-  description: >
+  description: |
     Advanced lighting control using a state machine with multiple device groups.
-    Supports immediate and delayed device behaviors, state persistence, and debouncing.
-    
-    **Features:**
-    - State machine with configurable states (OFF, OFF_TO_ON, ON, ON_TO_OFF)
-    - Multiple device groups with independent behaviors
-    - Immediate devices: Turn on/off instantly with occupancy
-    - Delayed devices: Turn off after delay, reset if occupancy detected
-    - State persistence via helper entity
-    - Debouncing via minimum state duration
-    
-    **Use Cases:**
-    - Bathrooms with mirror and main lights (different behaviors)
-    - Spaces requiring debouncing to prevent rapid cycling
-    - Complex lighting scenarios with multiple device groups
-    
-    **Required:**
-    - Occupancy sensor (binary_sensor)
-    - At least one device group configured
-    - Optional: Input text helper for state persistence
+
+    ---
+
+    ## Features
+
+    | Feature | Description |
+    |---------|-------------|
+    | **State machine** | 4-state system prevents rapid cycling |
+    | **Device groups** | Up to 2 groups with independent behaviors |
+    | **Immediate mode** | Turn on/off instantly with occupancy |
+    | **Delayed mode** | Turn off after delay, reset on re-trigger |
+    | **State persistence** | Optional helper for state across restarts |
+
+    ---
+
+    <details>
+    <summary><b>State Machine Flow</b></summary>
+
+    ```
+    OFF ──(occupancy on)──> OFF_TO_ON ──> ON
+     ^                                     |
+     |                                     v
+    OFF <──(delay expires)── ON_TO_OFF <──(occupancy off)
+    ```
+
+    - Prevents rapid on/off cycling
+    - Handles interrupted transitions gracefully
+
+    </details>
+
+    <details>
+    <summary><b>Device Group Behaviors</b></summary>
+
+    **Immediate** (e.g., mirror light)
+    - Turns on/off instantly with occupancy
+    - No delay or debouncing
+
+    **Delayed** (e.g., main light)
+    - Turns on instantly
+    - Waits X seconds before turning off
+    - Resets delay if occupancy detected again
+
+    </details>
+
+    <details>
+    <summary><b>Configuration Example: Bathroom</b></summary>
+
+    - **Group 1 (Mirror)**: Immediate behavior
+    - **Group 2 (Main)**: Delayed, 30 second turn-off
+    - **State helper**: `input_text.bathroom_light_state`
+
+    </details>
+
+    ---
+
+    **Required:** Occupancy sensor + at least one device group
 
   domain: automation
   author: bthos

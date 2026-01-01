@@ -1,25 +1,60 @@
 ---
 blueprint:
   name: Occupancy Multi-Condition Light Control
-  description: >
+  description: |
     Generalized occupancy-based lighting control with multiple conditions and time restrictions.
-    Supports multiple occupancy sensors with AND/OR logic, optional time restrictions,
-    additional sensor conditions (illuminance, temperature, etc.), and automatic turn-off delays.
-    
-    **Features:**
-    - Multiple occupancy sensors with configurable AND/OR logic
-    - Optional time restrictions (day only, night only, custom time windows)
-    - Additional sensor conditions (illuminance threshold, temperature, etc.)
-    - Automatic turn-off delay with reset capability
-    - Multiple target devices support
-    - Duplicate prevention (RBE-equivalent filtering)
-    - Adaptive brightness: dim lights at night to protect eyes, full brightness during day
-    
-    **Use Cases:**
-    - Hallways with multiple occupancy sensors
-    - Living rooms requiring both occupancy and low illuminance
-    - Rooms that should only activate during specific times
-    - Any space needing complex conditional lighting control
+
+    ---
+
+    ## Features
+
+    | Feature | Description |
+    |---------|-------------|
+    | **Multi-sensor support** | Multiple occupancy sensors with AND/OR logic |
+    | **Time restrictions** | Day only, night only, or custom time windows |
+    | **Illuminance check** | Only activate when room is dark enough |
+    | **Auto turn-off** | Configurable delay before turning off |
+    | **Adaptive brightness** | Dim lights at night to protect eyes |
+
+    ---
+
+    <details>
+    <summary><b>Use Cases</b></summary>
+
+    - **Hallways**: Multiple occupancy sensors with AND logic
+    - **Living rooms**: Occupancy + low illuminance condition
+    - **Bedrooms**: Night-only activation with dim brightness
+    - **Bathrooms**: Immediate response with auto turn-off
+
+    </details>
+
+    <details>
+    <summary><b>Adaptive Brightness</b></summary>
+
+    Protects your eyes from bright light during nighttime activations:
+
+    - **Night mode**: Reduced brightness (default 30%)
+    - **Day mode**: Full brightness (default 100%)
+    - **Detection**: Sun-based (automatic) or custom time window
+
+    *Example: Wake up at 3 AM, light turns on at 30% instead of blinding 100%*
+
+    </details>
+
+    <details>
+    <summary><b>Configuration Examples</b></summary>
+
+    **Hallway (2 sensors)**
+    - Occupancy logic: AND
+    - Time restriction: Night only
+    - Turn-off delay: 0 min
+
+    **Living Room**
+    - Illuminance sensor: < 500 lux
+    - Turn-off delay: 15 min
+    - Adaptive brightness: On
+
+    </details>
 
   domain: automation
   author: bthos
@@ -180,10 +215,6 @@ trigger:
     entity_id: !input occupancy_sensors
     id: occupancy_changed
 
-  - platform: state
-    entity_id: !input illuminance_sensor
-    id: illuminance_changed
-
   - platform: sun
     event: sunset
     offset: "-00:00:02"
@@ -193,14 +224,6 @@ trigger:
     event: sunrise
     offset: "00:00:02"
     id: sunrise_time
-
-  - platform: time
-    at: !input time_window_start
-    id: time_window_start_trigger
-
-  - platform: time
-    at: !input time_window_end
-    id: time_window_end_trigger
 
 variables:
   occupancy_sensors_list: !input occupancy_sensors
@@ -218,7 +241,7 @@ variables:
   night_end: !input night_period_end
 
 condition:
-  # Time restriction check (if enabled) - skip for sunrise trigger
+  # Time restriction check (if enabled) - skip for sunrise trigger and turn-off
   - condition: or
     conditions:
       - condition: trigger
@@ -239,10 +262,24 @@ condition:
           - condition: sun
             after: sunrise
             before: sunset
+      # Allow turn-off regardless of time restriction (if all sensors are off)
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: occupancy_changed
+          - condition: template
+            value_template: >-
+              {% set all_off = true %}
+              {% for sensor in occupancy_sensors_list %}
+                {% if states(sensor) == 'on' %}
+                  {% set all_off = false %}
+                {% endif %}
+              {% endfor %}
+              {{ all_off }}
 
   - condition: or
     conditions:
-      # Occupancy changed trigger - check all conditions
+      # Occupancy changed trigger (turn ON) - check all conditions for activation
       - condition: and
         conditions:
           - condition: trigger
@@ -279,40 +316,21 @@ condition:
               
               {{ all_conditions_met }}
 
-      # Illuminance changed trigger
+      # Occupancy changed trigger (turn OFF) - allow when all sensors are off
       - condition: and
         conditions:
           - condition: trigger
-            id: illuminance_changed
+            id: occupancy_changed
           - condition: template
             value_template: >-
-              {% set all_conditions_met = true %}
-              
-              {# Check occupancy sensors #}
-              {% if occupancy_logic_type == 'and' %}
-                {% for sensor in occupancy_sensors_list %}
-                  {% if states(sensor) != 'on' %}
-                    {% set all_conditions_met = false %}
-                  {% endif %}
-                {% endfor %}
-              {% else %}
-                {% set any_occupied = false %}
-                {% for sensor in occupancy_sensors_list %}
-                  {% if states(sensor) == 'on' %}
-                    {% set any_occupied = true %}
-                  {% endif %}
-                {% endfor %}
-                {% if not any_occupied %}
-                  {% set all_conditions_met = false %}
+              {# Check if all occupancy sensors are OFF (for turn-off logic) #}
+              {% set all_off = true %}
+              {% for sensor in occupancy_sensors_list %}
+                {% if states(sensor) == 'on' %}
+                  {% set all_off = false %}
                 {% endif %}
-              {% endif %}
-              
-              {# Check illuminance #}
-              {% if (states(illuminance_sensor_entity) | float(9999)) >= illuminance_threshold_value %}
-                {% set all_conditions_met = false %}
-              {% endif %}
-              
-              {{ all_conditions_met }}
+              {% endfor %}
+              {{ all_off }}
 
       # Sunset trigger - check if occupancy is active and night_only restriction
       - condition: and
@@ -377,8 +395,6 @@ action:
             conditions:
               - condition: trigger
                 id: occupancy_changed
-              - condition: trigger
-                id: illuminance_changed
               - condition: trigger
                 id: sunset_time
         sequence:
