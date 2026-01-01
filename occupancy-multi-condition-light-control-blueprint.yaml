@@ -389,7 +389,7 @@ action:
                           target:
                             entity_id: "{{ repeat.item }}"
 
-      # Turn on when conditions are met
+      # Turn on when conditions are met (occupancy ON + other conditions)
       - conditions:
           - condition: or
             conditions:
@@ -397,31 +397,32 @@ action:
                 id: occupancy_changed
               - condition: trigger
                 id: sunset_time
+          # Only match this case when at least one sensor is ON
+          - condition: template
+            value_template: >-
+              {% if occupancy_logic_type == 'and' %}
+                {% set all_on = true %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) != 'on' %}
+                    {% set all_on = false %}
+                  {% endif %}
+                {% endfor %}
+                {{ all_on }}
+              {% else %}
+                {% set any_on = false %}
+                {% for sensor in occupancy_sensors_list %}
+                  {% if states(sensor) == 'on' %}
+                    {% set any_on = true %}
+                  {% endif %}
+                {% endfor %}
+                {{ any_on }}
+              {% endif %}
         sequence:
           - variables:
               should_turn_on: >-
                 {% set all_conditions_met = true %}
                 
-                {# Check occupancy sensors #}
-                {% if occupancy_logic_type == 'and' %}
-                  {% for sensor in occupancy_sensors_list %}
-                    {% if states(sensor) != 'on' %}
-                      {% set all_conditions_met = false %}
-                    {% endif %}
-                  {% endfor %}
-                {% else %}
-                  {% set any_occupied = false %}
-                  {% for sensor in occupancy_sensors_list %}
-                    {% if states(sensor) == 'on' %}
-                      {% set any_occupied = true %}
-                    {% endif %}
-                  {% endfor %}
-                  {% if not any_occupied %}
-                    {% set all_conditions_met = false %}
-                  {% endif %}
-                {% endif %}
-                
-                {# Check time restriction - handled via separate condition #}
+                {# Occupancy already checked in condition above #}
                 
                 {# Check illuminance if configured #}
                 {% if illuminance_sensor_entity and illuminance_sensor_entity != '' %}
