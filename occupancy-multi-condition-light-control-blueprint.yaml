@@ -214,18 +214,16 @@ blueprint:
 
 triggers:
   - trigger: state
-    options:
-      entity_id: !input occupancy_sensors
-      from: "off"
-      to: "on"
-      id: occupancy_on
+    entity_id: !input occupancy_sensors
+    from: "off"
+    to: "on"
+    id: occupancy_on
 
   - trigger: state
-    options:
-      entity_id: !input occupancy_sensors
-      from: "on"
-      to: "off"
-      id: occupancy_off
+    entity_id: !input occupancy_sensors
+    from: "on"
+    to: "off"
+    id: occupancy_off
 
 variables:
   occupancy_sensors_list: !input occupancy_sensors
