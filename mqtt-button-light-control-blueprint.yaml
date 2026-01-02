@@ -183,10 +183,10 @@ blueprint:
           domain: input_boolean
       default:
 
-trigger:
-  - platform: mqtt
-    topic: !input mqtt_topic
-    value_template: "{{ value }}"
+triggers:
+  - trigger: mqtt
+    options:
+      topic: !input mqtt_topic
 
 variables:
   target_light_entity: !input target_light
