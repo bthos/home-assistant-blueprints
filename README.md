@@ -8,6 +8,7 @@ A collection of useful Home Assistant blueprints to automate and enhance your sm
 |-----------|-------------|---------|
 | [RGB Color Cycling](rgb-color-cycling-blueprint.yaml) | Smooth RGB color cycling script that transitions through the color spectrum. Creates beautiful smooth color transitions through Cyan→Blue→Magenta→Red→Yellow→Green→Cyan cycle. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Frgb-color-cycling-blueprint.yaml) |
 | [Dishwasher PVPC Smart Scheduling](dishwasher-pvpc-smart-scheduling-blueprint.yaml) | Smart dishwasher scheduling based on PVPC electricity pricing. Automatically checks PVPC prices when dishwasher is turned on and reschedules to cheaper hours if current price is too high. Supports Home Connect for native delayed start. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fdishwasher-pvpc-smart-scheduling-blueprint.yaml) |
+| [MQTT Button Light Control](mqtt-button-light-control-blueprint.yaml) | Control lights via MQTT button events. Supports brightness, color temperature, hue, saturation adjustments, rotation, and click actions. Perfect for Zigbee2MQTT rotary knobs and buttons. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fmqtt-button-light-control-blueprint.yaml) |
 | [Occupancy Multi-Condition Light Control](occupancy-multi-condition-light-control-blueprint.yaml) | Generalized occupancy-based lighting with multiple sensors, time restrictions, and additional conditions. Supports AND/OR logic, illuminance thresholds, day/night restrictions, and automatic turn-off delays. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Foccupancy-multi-condition-light-control-blueprint.yaml) |
 | [State Machine Light Control](state-machine-light-control-blueprint.yaml) | Advanced lighting control using state machine with multiple device groups. Supports immediate and delayed behaviors, state persistence, and debouncing to prevent rapid cycling. | [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fbthos%2Fhome-assistant-blueprints%2Frefs%2Fheads%2Fmain%2Fstate-machine-light-control-blueprint.yaml) |
 
@@ -131,6 +132,42 @@ Advanced lighting control with state machine logic converted from Node-RED workf
   - Group 1 (Mirror): Immediate behavior
   - Group 2 (Main): Delayed behavior, 30 second delay
   - Use state helper for persistence
+
+#### MQTT Button Light Control Blueprint
+
+Control lights via MQTT button/knob events. Perfect for Zigbee2MQTT devices like rotary knobs and buttons.
+
+**Required:**
+- MQTT integration configured in Home Assistant
+- MQTT topic that publishes button actions (e.g., `zigbee2mqtt/Knob ERS-10TZBVK-AA-01/action`)
+- Target light entity to control
+
+**Optional:**
+- Input boolean helper for continuous movement tracking (hue_move/saturation_move)
+- Custom step sizes for brightness, color temperature, hue, and saturation
+
+**Supported Actions:**
+- **toggle**: Toggle light on/off
+- **brightness_step_up/down**: Adjust brightness by configured step (default 10%)
+- **color_temperature_step_up/down**: Adjust color temperature (default 50K steps)
+- **rotate_left/right**: Adjust based on rotation action setting (brightness, color temp, hue, or saturation)
+- **single/double/hold**: Click actions (toggle, turn on, turn off)
+- **hue_move/saturation_move**: Start continuous adjustment (requires helper entity)
+- **hue_stop**: Stop continuous adjustment
+
+**Usage Tips:**
+- Configure step sizes based on your preference (smaller = finer control)
+- Rotation action determines what rotate_left/right controls (default: brightness)
+- For continuous hue/saturation movement, create an input_boolean helper and reference it
+- Color temperature steps are automatically converted from Kelvin to mireds
+- All adjustments respect light's supported ranges (brightness 0-100%, color temp min/max mireds)
+- Hue wraps around (0-360 degrees), saturation clamped to 0-100%
+
+**Common Configurations:**
+- **Basic Control**: Use default settings, map toggle to single click
+- **Brightness Knob**: Set rotation action to brightness, adjust step size as needed
+- **Color Control**: Set rotation action to hue or saturation for color adjustments
+- **Multi-function**: Use different click types for different actions (single=toggle, double=scene)
 
 ## Contributing
 
