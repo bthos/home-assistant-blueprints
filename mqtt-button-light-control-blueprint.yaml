@@ -4,7 +4,7 @@ blueprint:
   description: |
     Control lights via MQTT button events. Supports brightness, color temperature, hue, saturation adjustments, and click actions.
 
-    **Version:** 1.0.0
+    **Version:** 1.2.0
 
     ---
 
@@ -19,6 +19,7 @@ blueprint:
     | **Rotation support** | Map rotation to brightness, color temp, hue, or saturation |
     | **Click actions** | Single, double, and hold button actions |
     | **Continuous movement** | Smooth hue/saturation adjustments |
+    | **Favorite color** | Restore favorite color with a button action |
 
     ---
 
@@ -29,9 +30,10 @@ blueprint:
     - **brightness_step_up/down**: Adjust brightness by configured step
     - **color_temperature_step_up/down**: Adjust color temperature
     - **rotate_left/right**: Adjust based on rotation action setting
-    - **single/double/hold**: Click actions (toggle, scene, or custom)
+    - **single/double/hold**: Click actions (toggle, scene, favorite color, or custom)
     - **hue_move/saturation_move**: Start continuous adjustment
     - **hue_stop**: Stop continuous adjustment
+    - **Favorite color**: Restore saved color with configured action
 
     </details>
 
@@ -62,12 +64,13 @@ blueprint:
         text:
       default: "zigbee2mqtt/Knob ERS-10TZBVK/action"
 
-    target_light:
-      name: Target Light
-      description: Light entity to control
+    target_lights:
+      name: Target Lights
+      description: Light entities to control (select one or more)
       selector:
         entity:
           domain: light
+          multiple: true
 
     brightness_step:
       name: Brightness Step (%)
@@ -140,6 +143,8 @@ blueprint:
               value: "turn_on"
             - label: "Turn Off"
               value: "turn_off"
+            - label: "Restore Favorite Color"
+              value: "favorite_color"
       default: "toggle"
 
     double_click_action:
@@ -156,6 +161,8 @@ blueprint:
               value: "turn_off"
             - label: "Set Scene"
               value: "scene"
+            - label: "Restore Favorite Color"
+              value: "favorite_color"
       default: "toggle"
 
     hold_action:
@@ -170,7 +177,64 @@ blueprint:
               value: "turn_on"
             - label: "Turn Off"
               value: "turn_off"
+            - label: "Restore Favorite Color"
+              value: "favorite_color"
       default: "toggle"
+
+    favorite_color_enabled:
+      name: Enable Favorite Color
+      description: Enable favorite color restore feature
+      selector:
+        boolean:
+      default: false
+
+    favorite_color_hue:
+      name: Favorite Color - Hue
+      description: Hue value for favorite color (0-360 degrees)
+      selector:
+        number:
+          min: 0
+          max: 360
+          step: 1
+      default: 0
+
+    favorite_color_saturation:
+      name: Favorite Color - Saturation (%)
+      description: Saturation value for favorite color (0-100%)
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+      default: 100
+
+    favorite_color_brightness:
+      name: Favorite Color - Brightness (%)
+      description: >
+        Brightness value for favorite color (0-100%).
+        Set to 0 to use current brightness instead.
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 5
+          unit_of_measurement: "%"
+      default: 0
+
+    favorite_color_action:
+      name: Favorite Color Action
+      description: Which button action triggers favorite color restore
+      selector:
+        select:
+          options:
+            - label: "Single Click"
+              value: "single"
+            - label: "Double Click"
+              value: "double"
+            - label: "Hold"
+              value: "hold"
+      default: "double"
 
     movement_helper:
       name: Movement Helper Entity
@@ -189,7 +253,7 @@ triggers:
       topic: !input mqtt_topic
 
 variables:
-  target_light_entity: !input target_light
+  target_lights_list: !input target_lights
   brightness_step_value: !input brightness_step
   color_temp_step_value: !input color_temperature_step
   hue_step_value: !input hue_step
@@ -199,6 +263,11 @@ variables:
   double_action: !input double_click_action
   hold_action_type: !input hold_action
   movement_helper_entity: !input movement_helper
+  favorite_color_enabled: !input favorite_color_enabled
+  favorite_color_hue_value: !input favorite_color_hue
+  favorite_color_saturation_value: !input favorite_color_saturation
+  favorite_color_brightness_value: !input favorite_color_brightness
+  favorite_color_action_type: !input favorite_color_action
   payload: "{{ trigger.payload }}"
 
 action:
@@ -208,407 +277,488 @@ action:
           - condition: template
             value_template: "{{ payload == 'toggle' }}"
         sequence:
-          - service: light.toggle
-            target:
-              entity_id: "{{ target_light_entity }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - service: light.toggle
+                  target:
+                    entity_id: "{{ repeat.item }}"
 
       # Brightness step up
       - conditions:
           - condition: template
             value_template: "{{ payload == 'brightness_step_up' }}"
         sequence:
-          - variables:
-              current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
-              current_brightness_pct: >-
-                {% if current_brightness > 0 %}
-                  {{ (current_brightness / 255 * 100) | round(0) | int }}
-                {% else %}
-                  50
-                {% endif %}
-              new_brightness_pct: >-
-                {% set new = current_brightness_pct + brightness_step_value %}
-                {{ [new, 100] | min }}
-              new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
-          - service: light.turn_on
-            target:
-              entity_id: "{{ target_light_entity }}"
-            data:
-              brightness: "{{ new_brightness }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - variables:
+                    current_brightness: "{{ state_attr(repeat.item, 'brightness') | int(0) }}"
+                    current_brightness_pct: >-
+                      {% if current_brightness > 0 %}
+                        {{ (current_brightness / 255 * 100) | round(0) | int }}
+                      {% else %}
+                        50
+                      {% endif %}
+                    new_brightness_pct: >-
+                      {% set new = current_brightness_pct + brightness_step_value %}
+                      {{ [new, 100] | min }}
+                    new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness: "{{ new_brightness }}"
 
       # Brightness step down
       - conditions:
           - condition: template
             value_template: "{{ payload == 'brightness_step_down' }}"
         sequence:
-          - variables:
-              current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
-              current_brightness_pct: >-
-                {% if current_brightness > 0 %}
-                  {{ (current_brightness / 255 * 100) | round(0) | int }}
-                {% else %}
-                  50
-                {% endif %}
-              new_brightness_pct: >-
-                {% set new = current_brightness_pct - brightness_step_value %}
-                {{ [new, 1] | max }}
-              new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
-          - service: light.turn_on
-            target:
-              entity_id: "{{ target_light_entity }}"
-            data:
-              brightness: "{{ new_brightness }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - variables:
+                    current_brightness: "{{ state_attr(repeat.item, 'brightness') | int(0) }}"
+                    current_brightness_pct: >-
+                      {% if current_brightness > 0 %}
+                        {{ (current_brightness / 255 * 100) | round(0) | int }}
+                      {% else %}
+                        50
+                      {% endif %}
+                    new_brightness_pct: >-
+                      {% set new = current_brightness_pct - brightness_step_value %}
+                      {{ [new, 1] | max }}
+                    new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness: "{{ new_brightness }}"
 
       # Color temperature step up
       - conditions:
           - condition: template
             value_template: "{{ payload == 'color_temperature_step_up' }}"
         sequence:
-          - variables:
-              current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
-              light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
-              light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
-              # Convert K to mireds: mireds = 1000000 / K
-              step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
-              new_ct: >-
-                {% if current_ct == 0 %}
-                  {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
-                {% endif %}
-                {% set new = current_ct - step_mireds %}
-                {{ [[new, light_min_ct] | max, light_max_ct] | min }}
-          - service: light.turn_on
-            target:
-              entity_id: "{{ target_light_entity }}"
-            data:
-              color_temp: "{{ new_ct }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - variables:
+                    current_ct: "{{ state_attr(repeat.item, 'color_temp') | int(0) }}"
+                    light_min_ct: "{{ state_attr(repeat.item, 'min_mireds') | int(153) }}"
+                    light_max_ct: "{{ state_attr(repeat.item, 'max_mireds') | int(500) }}"
+                    # Convert K to mireds: mireds = 1000000 / K
+                    step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
+                    new_ct: >-
+                      {% if current_ct == 0 %}
+                        {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                      {% endif %}
+                      {% set new = current_ct - step_mireds %}
+                      {{ [[new, light_min_ct] | max, light_max_ct] | min }}
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    color_temp: "{{ new_ct }}"
 
       # Color temperature step down
       - conditions:
           - condition: template
             value_template: "{{ payload == 'color_temperature_step_down' }}"
         sequence:
-          - variables:
-              current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
-              light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
-              light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
-              # Convert K to mireds: mireds = 1000000 / K
-              step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
-              new_ct: >-
-                {% if current_ct == 0 %}
-                  {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
-                {% endif %}
-                {% set new = current_ct + step_mireds %}
-                {{ [[new, light_min_ct] | max, light_max_ct] | min }}
-          - service: light.turn_on
-            target:
-              entity_id: "{{ target_light_entity }}"
-            data:
-              color_temp: "{{ new_ct }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - variables:
+                    current_ct: "{{ state_attr(repeat.item, 'color_temp') | int(0) }}"
+                    light_min_ct: "{{ state_attr(repeat.item, 'min_mireds') | int(153) }}"
+                    light_max_ct: "{{ state_attr(repeat.item, 'max_mireds') | int(500) }}"
+                    # Convert K to mireds: mireds = 1000000 / K
+                    step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
+                    new_ct: >-
+                      {% if current_ct == 0 %}
+                        {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                      {% endif %}
+                      {% set new = current_ct + step_mireds %}
+                      {{ [[new, light_min_ct] | max, light_max_ct] | min }}
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    color_temp: "{{ new_ct }}"
 
       # Rotate left
       - conditions:
           - condition: template
             value_template: "{{ payload == 'rotate_left' }}"
         sequence:
-          - choose:
-              # Rotate left = decrease brightness
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'brightness' }}"
-                sequence:
-                  - variables:
-                      current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
-                      current_brightness_pct: >-
-                        {% if current_brightness > 0 %}
-                          {{ (current_brightness / 255 * 100) | round(0) | int }}
-                        {% else %}
-                          50
-                        {% endif %}
-                      new_brightness_pct: >-
-                        {% set new = current_brightness_pct - brightness_step_value %}
-                        {{ [new, 1] | max }}
-                      new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      brightness: "{{ new_brightness }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - choose:
+                    # Rotate left = decrease brightness
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'brightness' }}"
+                      sequence:
+                        - variables:
+                            current_brightness: "{{ state_attr(repeat.item, 'brightness') | int(0) }}"
+                            current_brightness_pct: >-
+                              {% if current_brightness > 0 %}
+                                {{ (current_brightness / 255 * 100) | round(0) | int }}
+                              {% else %}
+                                50
+                              {% endif %}
+                            new_brightness_pct: >-
+                              {% set new = current_brightness_pct - brightness_step_value %}
+                              {{ [new, 1] | max }}
+                            new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            brightness: "{{ new_brightness }}"
 
-              # Rotate left = decrease color temp (warmer)
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'color_temperature' }}"
-                sequence:
-                  - variables:
-                      current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
-                      light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
-                      light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
-                      step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
-                      new_ct: >-
-                        {% if current_ct == 0 %}
-                          {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
-                        {% endif %}
-                        {% set new = current_ct + step_mireds %}
-                        {{ [[new, light_min_ct] | max, light_max_ct] | min }}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      color_temp: "{{ new_ct }}"
+                    # Rotate left = decrease color temp (warmer)
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'color_temperature' }}"
+                      sequence:
+                        - variables:
+                            current_ct: "{{ state_attr(repeat.item, 'color_temp') | int(0) }}"
+                            light_min_ct: "{{ state_attr(repeat.item, 'min_mireds') | int(153) }}"
+                            light_max_ct: "{{ state_attr(repeat.item, 'max_mireds') | int(500) }}"
+                            step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
+                            new_ct: >-
+                              {% if current_ct == 0 %}
+                                {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                              {% endif %}
+                              {% set new = current_ct + step_mireds %}
+                              {{ [[new, light_min_ct] | max, light_max_ct] | min }}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            color_temp: "{{ new_ct }}"
 
-              # Rotate left = decrease hue
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'hue' }}"
-                sequence:
-                  - variables:
-                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
-                      current_hue: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
-                          {{ hs_color_attr[0] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      current_saturation: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
-                          {{ hs_color_attr[1] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      new_hue: >-
-                        {% set new = current_hue - hue_step_value %}
-                        {% if new < 0 %}
-                          {{ new + 360 }}
-                        {% else %}
-                          {{ new }}
-                        {% endif %}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      hs_color: ["{{ new_hue }}", "{{ current_saturation }}"]
+                    # Rotate left = decrease hue
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'hue' }}"
+                      sequence:
+                        - variables:
+                            hs_color_attr: "{{ state_attr(repeat.item, 'hs_color') | default([0, 0]) }}"
+                            current_hue: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                                {{ hs_color_attr[0] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            current_saturation: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                                {{ hs_color_attr[1] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            new_hue: >-
+                              {% set new = current_hue - hue_step_value %}
+                              {% if new < 0 %}
+                                {{ new + 360 }}
+                              {% else %}
+                                {{ new }}
+                              {% endif %}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ new_hue }}", "{{ current_saturation }}"]
 
-              # Rotate left = decrease saturation
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'saturation' }}"
-                sequence:
-                  - variables:
-                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
-                      current_hue: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
-                          {{ hs_color_attr[0] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      current_saturation: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
-                          {{ hs_color_attr[1] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      new_saturation: >-
-                        {% set new = current_saturation - saturation_step_value %}
-                        {{ [[new, 0] | max, 100] | min }}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      hs_color: ["{{ current_hue }}", "{{ new_saturation }}"]
+                    # Rotate left = decrease saturation
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'saturation' }}"
+                      sequence:
+                        - variables:
+                            hs_color_attr: "{{ state_attr(repeat.item, 'hs_color') | default([0, 0]) }}"
+                            current_hue: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                                {{ hs_color_attr[0] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            current_saturation: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                                {{ hs_color_attr[1] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            new_saturation: >-
+                              {% set new = current_saturation - saturation_step_value %}
+                              {{ [[new, 0] | max, 100] | min }}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ current_hue }}", "{{ new_saturation }}"]
 
       # Rotate right
       - conditions:
           - condition: template
             value_template: "{{ payload == 'rotate_right' }}"
         sequence:
-          - choose:
-              # Rotate right = increase brightness
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'brightness' }}"
-                sequence:
-                  - variables:
-                      current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
-                      current_brightness_pct: >-
-                        {% if current_brightness > 0 %}
-                          {{ (current_brightness / 255 * 100) | round(0) | int }}
-                        {% else %}
-                          50
-                        {% endif %}
-                      new_brightness_pct: >-
-                        {% set new = current_brightness_pct + brightness_step_value %}
-                        {{ [new, 100] | min }}
-                      new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      brightness: "{{ new_brightness }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - choose:
+                    # Rotate right = increase brightness
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'brightness' }}"
+                      sequence:
+                        - variables:
+                            current_brightness: "{{ state_attr(repeat.item, 'brightness') | int(0) }}"
+                            current_brightness_pct: >-
+                              {% if current_brightness > 0 %}
+                                {{ (current_brightness / 255 * 100) | round(0) | int }}
+                              {% else %}
+                                50
+                              {% endif %}
+                            new_brightness_pct: >-
+                              {% set new = current_brightness_pct + brightness_step_value %}
+                              {{ [new, 100] | min }}
+                            new_brightness: "{{ (new_brightness_pct / 100 * 255) | round(0) | int }}"
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            brightness: "{{ new_brightness }}"
 
-              # Rotate right = increase color temp (cooler)
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'color_temperature' }}"
-                sequence:
-                  - variables:
-                      current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
-                      light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
-                      light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
-                      step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
-                      new_ct: >-
-                        {% if current_ct == 0 %}
-                          {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
-                        {% endif %}
-                        {% set new = current_ct - step_mireds %}
-                        {{ [[new, light_min_ct] | max, light_max_ct] | min }}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      color_temp: "{{ new_ct }}"
+                    # Rotate right = increase color temp (cooler)
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'color_temperature' }}"
+                      sequence:
+                        - variables:
+                            current_ct: "{{ state_attr(repeat.item, 'color_temp') | int(0) }}"
+                            light_min_ct: "{{ state_attr(repeat.item, 'min_mireds') | int(153) }}"
+                            light_max_ct: "{{ state_attr(repeat.item, 'max_mireds') | int(500) }}"
+                            step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
+                            new_ct: >-
+                              {% if current_ct == 0 %}
+                                {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                              {% endif %}
+                              {% set new = current_ct - step_mireds %}
+                              {{ [[new, light_min_ct] | max, light_max_ct] | min }}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            color_temp: "{{ new_ct }}"
 
-              # Rotate right = increase hue
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'hue' }}"
-                sequence:
-                  - variables:
-                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
-                      current_hue: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
-                          {{ hs_color_attr[0] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      current_saturation: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
-                          {{ hs_color_attr[1] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      new_hue: >-
-                        {% set new = current_hue + hue_step_value %}
-                        {% if new >= 360 %}
-                          {{ new - 360 }}
-                        {% else %}
-                          {{ new }}
-                        {% endif %}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      hs_color: ["{{ new_hue }}", "{{ current_saturation }}"]
+                    # Rotate right = increase hue
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'hue' }}"
+                      sequence:
+                        - variables:
+                            hs_color_attr: "{{ state_attr(repeat.item, 'hs_color') | default([0, 0]) }}"
+                            current_hue: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                                {{ hs_color_attr[0] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            current_saturation: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                                {{ hs_color_attr[1] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            new_hue: >-
+                              {% set new = current_hue + hue_step_value %}
+                              {% if new >= 360 %}
+                                {{ new - 360 }}
+                              {% else %}
+                                {{ new }}
+                              {% endif %}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ new_hue }}", "{{ current_saturation }}"]
 
-              # Rotate right = increase saturation
-              - conditions:
-                  - condition: template
-                    value_template: "{{ rotation_action_type == 'saturation' }}"
-                sequence:
-                  - variables:
-                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
-                      current_hue: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
-                          {{ hs_color_attr[0] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      current_saturation: >-
-                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
-                          {{ hs_color_attr[1] | int(0) }}
-                        {% else %}
-                          0
-                        {% endif %}
-                      new_saturation: >-
-                        {% set new = current_saturation + saturation_step_value %}
-                        {{ [[new, 0] | max, 100] | min }}
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      hs_color: ["{{ current_hue }}", "{{ new_saturation }}"]
+                    # Rotate right = increase saturation
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ rotation_action_type == 'saturation' }}"
+                      sequence:
+                        - variables:
+                            hs_color_attr: "{{ state_attr(repeat.item, 'hs_color') | default([0, 0]) }}"
+                            current_hue: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                                {{ hs_color_attr[0] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            current_saturation: >-
+                              {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                                {{ hs_color_attr[1] | int(0) }}
+                              {% else %}
+                                0
+                              {% endif %}
+                            new_saturation: >-
+                              {% set new = current_saturation + saturation_step_value %}
+                              {{ [[new, 0] | max, 100] | min }}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ current_hue }}", "{{ new_saturation }}"]
 
       # Single click
       - conditions:
           - condition: template
             value_template: "{{ payload == 'single' }}"
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ single_action == 'toggle' }}"
-                sequence:
-                  - service: light.toggle
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ single_action == 'turn_on' }}"
-                sequence:
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ single_action == 'turn_off' }}"
-                sequence:
-                  - service: light.turn_off
-                    target:
-                      entity_id: "{{ target_light_entity }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ single_action == 'toggle' }}"
+                      sequence:
+                        - service: light.toggle
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ single_action == 'turn_on' }}"
+                      sequence:
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ single_action == 'turn_off' }}"
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ single_action == 'favorite_color' and favorite_color_enabled }}"
+                      sequence:
+                        - variables:
+                            target_brightness: >-
+                              {% if favorite_color_brightness_value > 0 %}
+                                {{ (favorite_color_brightness_value / 100 * 255) | round(0) | int }}
+                              {% else %}
+                                {{ state_attr(repeat.item, 'brightness') | int(128) }}
+                              {% endif %}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ favorite_color_hue_value }}", "{{ favorite_color_saturation_value }}"]
+                            brightness: "{{ target_brightness }}"
 
       # Double click
       - conditions:
           - condition: template
             value_template: "{{ payload == 'double' }}"
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ double_action == 'toggle' }}"
-                sequence:
-                  - service: light.toggle
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ double_action == 'turn_on' }}"
-                sequence:
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ double_action == 'turn_off' }}"
-                sequence:
-                  - service: light.turn_off
-                    target:
-                      entity_id: "{{ target_light_entity }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ double_action == 'toggle' }}"
+                      sequence:
+                        - service: light.toggle
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ double_action == 'turn_on' }}"
+                      sequence:
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ double_action == 'turn_off' }}"
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ double_action == 'favorite_color' and favorite_color_enabled }}"
+                      sequence:
+                        - variables:
+                            target_brightness: >-
+                              {% if favorite_color_brightness_value > 0 %}
+                                {{ (favorite_color_brightness_value / 100 * 255) | round(0) | int }}
+                              {% else %}
+                                {{ state_attr(repeat.item, 'brightness') | int(128) }}
+                              {% endif %}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ favorite_color_hue_value }}", "{{ favorite_color_saturation_value }}"]
+                            brightness: "{{ target_brightness }}"
 
       # Hold
       - conditions:
           - condition: template
             value_template: "{{ payload == 'hold' }}"
         sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ hold_action_type == 'toggle' }}"
-                sequence:
-                  - service: light.toggle
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ hold_action_type == 'turn_on' }}"
-                sequence:
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-              - conditions:
-                  - condition: template
-                    value_template: "{{ hold_action_type == 'turn_off' }}"
-                sequence:
-                  - service: light.turn_off
-                    target:
-                      entity_id: "{{ target_light_entity }}"
+          - repeat:
+              for_each: !input target_lights
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ hold_action_type == 'toggle' }}"
+                      sequence:
+                        - service: light.toggle
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ hold_action_type == 'turn_on' }}"
+                      sequence:
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ hold_action_type == 'turn_off' }}"
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ hold_action_type == 'favorite_color' and favorite_color_enabled }}"
+                      sequence:
+                        - variables:
+                            target_brightness: >-
+                              {% if favorite_color_brightness_value > 0 %}
+                                {{ (favorite_color_brightness_value / 100 * 255) | round(0) | int }}
+                              {% else %}
+                                {{ state_attr(repeat.item, 'brightness') | int(128) }}
+                              {% endif %}
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                          data:
+                            hs_color: ["{{ favorite_color_hue_value }}", "{{ favorite_color_saturation_value }}"]
+                            brightness: "{{ target_brightness }}"
 
       # Hue move (start continuous adjustment)
       - conditions:

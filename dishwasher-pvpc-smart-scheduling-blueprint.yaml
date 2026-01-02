@@ -139,8 +139,8 @@ blueprint:
           domain: button
       default:
 
-trigger:
-  - platform: state
+triggers:
+  - trigger: state
     entity_id: !input dishwasher_power
     to: "on"
 
