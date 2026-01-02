@@ -336,7 +336,19 @@ action:
                     value_template: "{{ rotation_action_type == 'hue' }}"
                 sequence:
                   - variables:
-                      current_hue: "{{ states(target_light_entity) | attr('hs_color')[0] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
+                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
+                      current_hue: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                          {{ hs_color_attr[0] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
+                      current_saturation: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                          {{ hs_color_attr[1] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
                       new_hue: >-
                         {% set new = current_hue - hue_step_value %}
                         {% if new < 0 %}
@@ -344,7 +356,6 @@ action:
                         {% else %}
                           {{ new }}
                         {% endif %}
-                      current_saturation: "{{ states(target_light_entity) | attr('hs_color')[1] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
                   - service: light.turn_on
                     target:
                       entity_id: "{{ target_light_entity }}"
@@ -357,8 +368,19 @@ action:
                     value_template: "{{ rotation_action_type == 'saturation' }}"
                 sequence:
                   - variables:
-                      current_hue: "{{ states(target_light_entity) | attr('hs_color')[0] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
-                      current_saturation: "{{ states(target_light_entity) | attr('hs_color')[1] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
+                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
+                      current_hue: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                          {{ hs_color_attr[0] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
+                      current_saturation: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                          {{ hs_color_attr[1] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
                       new_saturation: >-
                         {% set new = current_saturation - saturation_step_value %}
                         {{ [[new, 0] | max, 100] | min }}
@@ -417,7 +439,19 @@ action:
                     value_template: "{{ rotation_action_type == 'hue' }}"
                 sequence:
                   - variables:
-                      current_hue: "{{ states(target_light_entity) | attr('hs_color')[0] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
+                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
+                      current_hue: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                          {{ hs_color_attr[0] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
+                      current_saturation: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                          {{ hs_color_attr[1] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
                       new_hue: >-
                         {% set new = current_hue + hue_step_value %}
                         {% if new >= 360 %}
@@ -425,7 +459,6 @@ action:
                         {% else %}
                           {{ new }}
                         {% endif %}
-                      current_saturation: "{{ states(target_light_entity) | attr('hs_color')[1] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
                   - service: light.turn_on
                     target:
                       entity_id: "{{ target_light_entity }}"
@@ -438,8 +471,19 @@ action:
                     value_template: "{{ rotation_action_type == 'saturation' }}"
                 sequence:
                   - variables:
-                      current_hue: "{{ states(target_light_entity) | attr('hs_color')[0] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
-                      current_saturation: "{{ states(target_light_entity) | attr('hs_color')[1] | int(0) if state_attr(target_light_entity, 'hs_color') else 0 }}"
+                      hs_color_attr: "{{ state_attr(target_light_entity, 'hs_color') | default([0, 0]) }}"
+                      current_hue: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 0 %}
+                          {{ hs_color_attr[0] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
+                      current_saturation: >-
+                        {% if hs_color_attr is iterable and hs_color_attr|length > 1 %}
+                          {{ hs_color_attr[1] | int(0) }}
+                        {% else %}
+                          0
+                        {% endif %}
                       new_saturation: >-
                         {% set new = current_saturation + saturation_step_value %}
                         {{ [[new, 0] | max, 100] | min }}
