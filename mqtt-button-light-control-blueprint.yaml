@@ -186,7 +186,7 @@ blueprint:
 trigger:
   - platform: mqtt
     topic: !input mqtt_topic
-    payload: ""
+    value_template: "{{ value }}"
 
 variables:
   target_light_entity: !input target_light
