@@ -186,6 +186,7 @@ blueprint:
 trigger:
   - platform: mqtt
     topic: !input mqtt_topic
+    payload: ""
 
 variables:
   target_light_entity: !input target_light
@@ -217,8 +218,13 @@ action:
             value_template: "{{ payload == 'brightness_step_up' }}"
         sequence:
           - variables:
-              current_brightness: "{{ states(target_light_entity) | attr('brightness') | int(0) }}"
-              current_brightness_pct: "{{ (current_brightness / 255 * 100) | round(0) | int }}"
+              current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
+              current_brightness_pct: >-
+                {% if current_brightness > 0 %}
+                  {{ (current_brightness / 255 * 100) | round(0) | int }}
+                {% else %}
+                  50
+                {% endif %}
               new_brightness_pct: >-
                 {% set new = current_brightness_pct + brightness_step_value %}
                 {{ [new, 100] | min }}
@@ -235,8 +241,13 @@ action:
             value_template: "{{ payload == 'brightness_step_down' }}"
         sequence:
           - variables:
-              current_brightness: "{{ states(target_light_entity) | attr('brightness') | int(0) }}"
-              current_brightness_pct: "{{ (current_brightness / 255 * 100) | round(0) | int }}"
+              current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
+              current_brightness_pct: >-
+                {% if current_brightness > 0 %}
+                  {{ (current_brightness / 255 * 100) | round(0) | int }}
+                {% else %}
+                  50
+                {% endif %}
               new_brightness_pct: >-
                 {% set new = current_brightness_pct - brightness_step_value %}
                 {{ [new, 1] | max }}
@@ -253,12 +264,15 @@ action:
             value_template: "{{ payload == 'color_temperature_step_up' }}"
         sequence:
           - variables:
-              current_ct: "{{ states(target_light_entity) | attr('color_temp') | int(0) }}"
+              current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
               light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
               light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
               # Convert K to mireds: mireds = 1000000 / K
               step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
               new_ct: >-
+                {% if current_ct == 0 %}
+                  {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                {% endif %}
                 {% set new = current_ct - step_mireds %}
                 {{ [[new, light_min_ct] | max, light_max_ct] | min }}
           - service: light.turn_on
@@ -273,12 +287,15 @@ action:
             value_template: "{{ payload == 'color_temperature_step_down' }}"
         sequence:
           - variables:
-              current_ct: "{{ states(target_light_entity) | attr('color_temp') | int(0) }}"
+              current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
               light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
               light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
               # Convert K to mireds: mireds = 1000000 / K
               step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
               new_ct: >-
+                {% if current_ct == 0 %}
+                  {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                {% endif %}
                 {% set new = current_ct + step_mireds %}
                 {{ [[new, light_min_ct] | max, light_max_ct] | min }}
           - service: light.turn_on
@@ -299,8 +316,13 @@ action:
                     value_template: "{{ rotation_action_type == 'brightness' }}"
                 sequence:
                   - variables:
-                      current_brightness: "{{ states(target_light_entity) | attr('brightness') | int(0) }}"
-                      current_brightness_pct: "{{ (current_brightness / 255 * 100) | round(0) | int }}"
+                      current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
+                      current_brightness_pct: >-
+                        {% if current_brightness > 0 %}
+                          {{ (current_brightness / 255 * 100) | round(0) | int }}
+                        {% else %}
+                          50
+                        {% endif %}
                       new_brightness_pct: >-
                         {% set new = current_brightness_pct - brightness_step_value %}
                         {{ [new, 1] | max }}
@@ -317,11 +339,14 @@ action:
                     value_template: "{{ rotation_action_type == 'color_temperature' }}"
                 sequence:
                   - variables:
-                      current_ct: "{{ states(target_light_entity) | attr('color_temp') | int(0) }}"
+                      current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
                       light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
                       light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
                       step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
                       new_ct: >-
+                        {% if current_ct == 0 %}
+                          {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                        {% endif %}
                         {% set new = current_ct + step_mireds %}
                         {{ [[new, light_min_ct] | max, light_max_ct] | min }}
                   - service: light.turn_on
@@ -402,8 +427,13 @@ action:
                     value_template: "{{ rotation_action_type == 'brightness' }}"
                 sequence:
                   - variables:
-                      current_brightness: "{{ states(target_light_entity) | attr('brightness') | int(0) }}"
-                      current_brightness_pct: "{{ (current_brightness / 255 * 100) | round(0) | int }}"
+                      current_brightness: "{{ state_attr(target_light_entity, 'brightness') | int(0) }}"
+                      current_brightness_pct: >-
+                        {% if current_brightness > 0 %}
+                          {{ (current_brightness / 255 * 100) | round(0) | int }}
+                        {% else %}
+                          50
+                        {% endif %}
                       new_brightness_pct: >-
                         {% set new = current_brightness_pct + brightness_step_value %}
                         {{ [new, 100] | min }}
@@ -420,11 +450,14 @@ action:
                     value_template: "{{ rotation_action_type == 'color_temperature' }}"
                 sequence:
                   - variables:
-                      current_ct: "{{ states(target_light_entity) | attr('color_temp') | int(0) }}"
+                      current_ct: "{{ state_attr(target_light_entity, 'color_temp') | int(0) }}"
                       light_min_ct: "{{ state_attr(target_light_entity, 'min_mireds') | int(153) }}"
                       light_max_ct: "{{ state_attr(target_light_entity, 'max_mireds') | int(500) }}"
                       step_mireds: "{{ (1000000 / color_temp_step_value) | round(0) | int }}"
                       new_ct: >-
+                        {% if current_ct == 0 %}
+                          {% set current_ct = (light_min_ct + light_max_ct) / 2 | round(0) | int %}
+                        {% endif %}
                         {% set new = current_ct - step_mireds %}
                         {{ [[new, light_min_ct] | max, light_max_ct] | min }}
                   - service: light.turn_on
