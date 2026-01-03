@@ -191,11 +191,13 @@ sequence:
   - if:
       - condition: template
         value_template: >
+          {% set any_on = false %}
           {% for light in target_lights_list %}
             {% if states(light) == 'on' %}
-              {{ true }}
+              {% set any_on = true %}
             {% endif %}
           {% endfor %}
+          {{ any_on }}
     then:
       - target:
           entity_id: !input target_lights
